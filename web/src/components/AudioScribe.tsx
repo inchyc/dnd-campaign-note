@@ -1,0 +1,442 @@
+"use client";
+
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import {
+  Mic,
+  Square,
+  Upload,
+  Play,
+  FileAudio,
+  CheckCircle2,
+  AlertTriangle,
+  Loader2,
+  Sparkles,
+  Info,
+  Calendar,
+  Volume2,
+} from "lucide-react";
+
+interface AudioChunk {
+  index: number;
+  file: string;
+  transcribed: boolean;
+  text?: string;
+}
+
+interface AudioScribeProps {
+  isScribe: boolean;
+  sessionDate: string;
+}
+
+const CHUNK_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+
+export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
+  const [chunks, setChunks] = useState<AudioChunk[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [chunkSeconds, setChunkSeconds] = useState(0);
+  const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
+  const [audioLevel, setAudioLevel] = useState(0); // 0 to 100
+  const [transcribingIndex, setTranscribingIndex] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<"record" | "chunks" | "manual">("record");
+
+  // MediaRecorder & Web Audio refs
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const recordedBlobsRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const fetchChunks = useCallback(async () => {
+    if (!sessionDate) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/audio?session=${sessionDate}`);
+      const data = await res.json();
+      if (data.success) {
+        setChunks(data.chunks || []);
+        // Next chunk index is after the highest recorded
+        const nextIndex = data.chunks.length > 0 ? Math.max(...data.chunks.map((c: AudioChunk) => c.index)) + 1 : 0;
+        setCurrentChunkIndex(nextIndex);
+      }
+    } catch (e) {
+      console.error("Failed to load chunks", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [sessionDate]);
+
+  useEffect(() => {
+    fetchChunks();
+  }, [fetchChunks]);
+
+  // Audio level visualizer loop
+  const updateLevel = () => {
+    if (!analyserRef.current) return;
+    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+    analyserRef.current.getByteFrequencyData(dataArray);
+    let sum = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+      sum += dataArray[i];
+    }
+    const avg = sum / dataArray.length;
+    // Map avg (0-255) to 0-100%
+    setAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
+    animFrameRef.current = requestAnimationFrame(updateLevel);
+  };
+
+  const uploadChunkBlob = async (blob: Blob, index: number) => {
+    const ext = blob.type.includes("webm") ? "webm" : blob.type.includes("mp4") ? "mp4" : "ogg";
+    try {
+      await fetch(`/api/audio?session=${sessionDate}&index=${index}&ext=${ext}`, {
+        method: "PUT",
+        headers: { "Content-Type": blob.type || "audio/webm" },
+        body: blob,
+      });
+      await fetchChunks();
+    } catch (e) {
+      console.error("Failed to upload chunk", e);
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      // Audio meter setup
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      audioContextRef.current = audioCtx;
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      analyserRef.current = analyser;
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      updateLevel();
+
+      // MediaRecorder setup
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/mp4")
+        ? "audio/mp4"
+        : "audio/ogg";
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+      recordedBlobsRef.current = [];
+
+      let chunkIdx = currentChunkIndex;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordedBlobsRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        if (recordedBlobsRef.current.length > 0) {
+          const blob = new Blob(recordedBlobsRef.current, { type: mimeType });
+          await uploadChunkBlob(blob, chunkIdx);
+          recordedBlobsRef.current = [];
+        }
+      };
+
+      recorder.start(1000); // 1s slice
+      setIsRecording(true);
+      setElapsedSeconds(0);
+      setChunkSeconds(0);
+
+      // Timer
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds((s) => s + 1);
+        setChunkSeconds((cs) => {
+          if (cs >= 600) {
+            // 10 minutes reached: roll chunk
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+              mediaRecorderRef.current.stop();
+              chunkIdx += 1;
+              setCurrentChunkIndex(chunkIdx);
+              setTimeout(() => {
+                if (streamRef.current && isRecording) {
+                  mediaRecorderRef.current?.start(1000);
+                }
+              }, 200);
+            }
+            return 0;
+          }
+          return cs + 1;
+        });
+      }, 1000);
+    } catch (err: any) {
+      alert("Microphone access denied or error: " + err.message);
+    }
+  };
+
+  const stopRecording = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    if (audioContextRef.current) audioContextRef.current.close();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+    }
+    setIsRecording(false);
+    setAudioLevel(0);
+  };
+
+  const handleTranscribeChunk = async (index: number) => {
+    setTranscribingIndex(index);
+    try {
+      const res = await fetch("/api/audio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: sessionDate, index }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert(data.error || "Transcription failed");
+        return;
+      }
+      await fetchChunks();
+    } catch (e: any) {
+      alert("Transcription failed: " + e.message);
+    } finally {
+      setTranscribingIndex(null);
+    }
+  };
+
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-fantasy-700/60 gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-serif font-bold text-amber-200 flex items-center gap-2">
+              <Mic className="w-5 h-5 text-rose-400" />
+              Audio Scribe & Live Session Recording
+            </h2>
+            {sessionDate && (
+              <span className="px-2 py-0.5 text-xs font-mono rounded bg-fantasy-800 text-amber-300 border border-fantasy-700 flex items-center gap-1">
+                <Calendar className="w-3 h-3 text-amber-400" /> {sessionDate}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Record tabletop sessions with automatic 10-minute chunking and Gemini campaign-aware transcription
+          </p>
+        </div>
+
+        <div className="flex items-center p-1 bg-fantasy-900 border border-fantasy-700 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setActiveTab("record")}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+              activeTab === "record"
+                ? "bg-amber-600 text-slate-950 font-semibold"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            Live Recording
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("chunks")}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+              activeTab === "chunks"
+                ? "bg-amber-600 text-slate-950 font-semibold"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            Session Chunks ({chunks.length})
+          </button>
+        </div>
+      </div>
+
+      {/* Instructions & Consent Banner */}
+      <div className="p-4 rounded-xl bg-fantasy-900/80 border border-rose-600/30 text-xs text-slate-300 space-y-2.5">
+        <div className="flex items-center gap-2 font-serif font-semibold text-rose-300 text-sm">
+          <AlertTriangle className="w-4 h-4 text-rose-400" />
+          Consent & Instructions: How Audio Scribe Works
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+          <div className="p-2.5 rounded bg-fantasy-850 border border-fantasy-700/60 space-y-1">
+            <span className="font-semibold text-amber-300">1. Table Consent</span>
+            <p className="text-slate-400 text-[11px] leading-relaxed">
+              Always ensure all players at the table consent to recording. Audio Scribe is solely for offline campaign note synthesis.
+            </p>
+          </div>
+          <div className="p-2.5 rounded bg-fantasy-850 border border-fantasy-700/60 space-y-1">
+            <span className="font-semibold text-amber-300">2. 10-Minute Safety Chunks</span>
+            <p className="text-slate-400 text-[11px] leading-relaxed">
+              Audio is automatically partitioned into standalone 10-minute files. If a browser refreshes or loses power, prior chunks remain safe.
+            </p>
+          </div>
+          <div className="p-2.5 rounded bg-fantasy-850 border border-fantasy-700/60 space-y-1">
+            <span className="font-semibold text-amber-300">3. Vilgeismar Campaign Glossary</span>
+            <p className="text-slate-400 text-[11px] leading-relaxed">
+              Gemini transcribes using your campaign glossary (Vaust, Vaelor, Vilgeismar, Demire, Marta Kell, Rooprecht) to spell lore accurately.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Recording Console */}
+      {activeTab === "record" && (
+        <div className="p-6 rounded-xl bg-fantasy-900/60 border border-fantasy-700 flex flex-col items-center justify-center space-y-6">
+          {/* Level Meter & Status */}
+          <div className="w-full max-w-md space-y-2 text-center">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <Volume2 className="w-4 h-4 text-amber-400" />
+                Mic Level: {audioLevel}%
+              </span>
+              <span className="font-mono text-amber-300">
+                {isRecording ? "🔴 RECORDING" : "STANDBY"}
+              </span>
+            </div>
+
+            {/* Visualizer Bar */}
+            <div className="w-full h-3 bg-fantasy-800 rounded-full overflow-hidden border border-fantasy-700 p-0.5">
+              <div
+                className={`h-full rounded-full transition-all duration-75 ${
+                  audioLevel > 75
+                    ? "bg-rose-500"
+                    : audioLevel > 35
+                    ? "bg-amber-400"
+                    : "bg-emerald-500"
+                }`}
+                style={{ width: `${Math.max(2, audioLevel)}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Timers */}
+          {isRecording && (
+            <div className="flex items-center gap-6 text-center">
+              <div>
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
+                  Total Session Time
+                </span>
+                <p className="text-3xl font-mono font-bold text-amber-200">
+                  {formatTime(elapsedSeconds)}
+                </p>
+              </div>
+              <div className="w-px h-10 bg-fantasy-700" />
+              <div>
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
+                  Current Chunk #{currentChunkIndex + 1}
+                </span>
+                <p className="text-2xl font-mono font-bold text-slate-300">
+                  {formatTime(chunkSeconds)} / 10:00
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Main Action Button */}
+          <div>
+            {!isRecording ? (
+              <button
+                type="button"
+                onClick={startRecording}
+                className="px-8 py-3.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white font-serif font-bold text-base shadow-lg shadow-rose-950/60 flex items-center gap-2.5 hover:scale-105 transition-transform"
+              >
+                <Mic className="w-5 h-5 animate-pulse" />
+                Start Recording Session
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={stopRecording}
+                className="px-8 py-3.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-serif font-bold text-base border border-slate-600 shadow-lg flex items-center gap-2.5 transition"
+              >
+                <Square className="w-5 h-5 text-rose-500 fill-rose-500" />
+                Stop Recording & Save Chunk
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Recorded Chunks List */}
+      <div className="space-y-3">
+        <h3 className="font-serif font-semibold text-sm text-slate-200 flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <FileAudio className="w-4 h-4 text-amber-400" />
+            Session Chunks & Transcripts ({chunks.length})
+          </span>
+          <button
+            type="button"
+            onClick={fetchChunks}
+            className="text-xs text-amber-400 hover:text-amber-300"
+          >
+            Refresh
+          </button>
+        </h3>
+
+        {chunks.length === 0 ? (
+          <div className="py-12 text-center text-slate-500 text-xs italic bg-fantasy-900/40 rounded-xl border border-fantasy-700">
+            No audio chunks recorded for this session yet.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {chunks.map((chunk) => (
+              <div
+                key={chunk.index}
+                className="p-4 rounded-xl bg-fantasy-850 border border-fantasy-700/80 shadow space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1.5 rounded bg-fantasy-800 text-amber-300 border border-fantasy-700 font-mono text-xs font-bold">
+                      Chunk #{chunk.index + 1}
+                    </span>
+                    <span className="text-xs text-slate-400 font-mono">{chunk.file}</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {chunk.transcribed ? (
+                      <span className="px-2 py-0.5 text-xs rounded bg-emerald-950/60 text-emerald-300 border border-emerald-700/60 flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Transcribed
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleTranscribeChunk(chunk.index)}
+                        disabled={transcribingIndex === chunk.index}
+                        className="px-3 py-1 text-xs font-semibold rounded bg-amber-600 hover:bg-amber-500 text-slate-950 flex items-center gap-1.5 transition disabled:opacity-50"
+                      >
+                        {transcribingIndex === chunk.index ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-3.5 h-3.5" />
+                        )}
+                        Transcribe with Gemini
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {chunk.text && (
+                  <div className="p-3 rounded-lg bg-fantasy-900 border border-fantasy-700/60 text-xs text-slate-300 max-h-48 overflow-y-auto whitespace-pre-wrap font-sans leading-relaxed">
+                    {chunk.text}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,75 @@
+{
+  "users": [
+    {
+      "id": "chris",
+      "name": "Chris",
+      "character": "Vex",
+      "role": "scribe",
+      "hash": "scrypt$300164093347ffca19dc99eb83af423f$1c47f675f056f04001dbe7ec96843306426fc50b36dc4f5d86831fb99141b44d",
+      "characterNotes": [
+        "Notes/PC Notes/Vex.md",
+        "Notes/PC Notes/Vex - Vesper.md"
+      ]
+    },
+    {
+      "id": "travis",
+      "name": "Travis",
+      "character": "Cedric",
+      "role": "player",
+      "hash": "scrypt$300164093347ffca19dc99eb83af423f$1c47f675f056f04001dbe7ec96843306426fc50b36dc4f5d86831fb99141b44d",
+      "characterNotes": [
+        "Notes/PC Notes/Cedric.md"
+      ]
+    },
+    {
+      "id": "johno",
+      "name": "Johno",
+      "character": "Colm",
+      "role": "player",
+      "hash": "scrypt$300164093347ffca19dc99eb83af423f$1c47f675f056f04001dbe7ec96843306426fc50b36dc4f5d86831fb99141b44d",
+      "characterNotes": [
+        "Notes/PC Notes/Colm.md"
+      ]
+    },
+    {
+      "id": "jess",
+      "name": "Jess",
+      "character": "Vola",
+      "role": "player",
+      "hash": "scrypt$300164093347ffca19dc99eb83af423f$1c47f675f056f04001dbe7ec96843306426fc50b36dc4f5d86831fb99141b44d",
+      "characterNotes": [
+        "Notes/PC Notes/Vola.md"
+      ]
+    },
+    {
+      "id": "damon",
+      "name": "Damon",
+      "character": "Erevan",
+      "role": "player",
+      "hash": "scrypt$300164093347ffca19dc99eb83af423f$1c47f675f056f04001dbe7ec96843306426fc50b36dc4f5d86831fb99141b44d",
+      "characterNotes": [
+        "Notes/PC Notes/Erevan.md"
+      ]
+    },
+    {
+      "id": "victoria",
+      "name": "Victoria",
+      "character": "Aewren",
+      "role": "player",
+      "hash": "scrypt$300164093347ffca19dc99eb83af423f$1c47f675f056f04001dbe7ec96843306426fc50b36dc4f5d86831fb99141b44d",
+      "characterNotes": [
+        "Notes/PC Notes/Aewren.md"
+      ]
+    },
+    {
+      "id": "jake",
+      "name": "Jake",
+      "character": "Ruik",
+      "role": "player",
+      "hash": "scrypt$300164093347ffca19dc99eb83af423f$1c47f675f056f04001dbe7ec96843306426fc50b36dc4f5d86831fb99141b44d",
+      "characterNotes": [
+        "Notes/PC Notes/Ruik.md"
+      ]
+    }
+  ]
+}

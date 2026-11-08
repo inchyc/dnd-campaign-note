@@ -1,0 +1,34 @@
+---
+draft: true
+created: 2026-05-06T13:51
+updated: 2026-11-06T17:56
+---
+- [ ] Notes to Add:
+	- [x] Lore - Lycans
+	- [x] Lore - Vampires
+	- [x] Lore - Undead
+	- [x] Lore - Little Gods / Old Gods
+	- [x] NPC - Lord Henrick Vaust - Update
+	- [ ] NPC - Demire (Link to Little Gods)
+	- [ ] NPC - Bernard Braun (Link to Demire)
+	- [ ] Lore - Being Lost
+	- [ ] Investigation - Being Lost
+	- [ ] Investigation - Little Gods / Old Gods
+	- [ ] Investigation - Forbidden Writings of The Many Faced Lady
+	- [ ] Investigation - Gods Walk the Earth
+	- [ ] Investigation - Convergence of the Supernatural 
+	- [ ] Lore - Hedge Magic
+	- [ ] Lore - The Tribes
+	- [ ] Lore - Fairy Tale
+	- [ ] Lore - Calling Upon the Gods
+	- [ ] Lore - Nails in Water
+	- [ ] Lore - Demons
+	- [ ] Investigation - Reputation of the Party
+	- [ ] NPC - [[Rooprecht]] - Update
+	- [ ] NPC - The Cool Sister - Johannah
+	- [ ] Lore - The Super Natural
+	- [ ] NPC - Lucas
+	- [ ] Lore - Fangs
+	- [ ] Lore - Dawn
+	- [ ] Lore - Cradlebreaker
+	- [ ] NPC Updates - Rooprat, Butcher, Rodrick
