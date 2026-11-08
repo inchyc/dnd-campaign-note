@@ -15,8 +15,8 @@ import androidx.core.content.ContextCompat
 class MainActivity : ComponentActivity() {
 
     private lateinit var webView: WebView
-    // Connects to local network server or production Vercel URL
-    private val appUrl = "http://10.70.70.28:3000"
+    // Connects to production Vercel deployment
+    private val appUrl = "https://starving-miracle-hub.vercel.app"
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
