@@ -10,13 +10,13 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "The Starving Miracle | Vilgeismar Campaign Codex",
+  title: "D&D Campaign Notes | Starving Vilgeismar",
   description: "Collaborative D&D Campaign Scribe, Lore Codex & Tabletop Operations",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Starving Miracle",
+    title: "D&D Notes",
   },
 };
 

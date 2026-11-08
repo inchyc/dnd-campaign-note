@@ -1,7 +1,7 @@
 {
-  "name": "The Starving Miracle",
-  "short_name": "Starving Miracle",
-  "description": "Vilgeismar D&D Campaign Operations & Lore Codex",
+  "name": "D&D Campaign Notes",
+  "short_name": "D&D Notes",
+  "description": "Collaborative D&D Campaign Scribe, Lore Codex & Tabletop Operations",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f0f13",

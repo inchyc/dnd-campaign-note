@@ -292,11 +292,13 @@ export default function CampaignHub() {
             </span>
             <div>
               <h1 className="font-serif font-bold text-base sm:text-lg text-amber-200 group-hover:text-amber-100 tracking-wide flex items-center gap-2">
-                The Starving Miracle
+                D&D Campaign Notes
               </h1>
-              <p className="text-[11px] text-slate-400 hidden sm:block">
-                Vilgeismar Codex & Tabletop Operations
-              </p>
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 hidden sm:flex">
+                <span className="text-amber-400/90 font-medium">Starving Vilgeismar</span>
+                <span>•</span>
+                <span>Codex & Operations</span>
+              </div>
             </div>
           </div>
 

@@ -102,10 +102,14 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
             <Shield className="w-8 h-8" />
           </div>
           <h1 className="text-2xl sm:text-3xl font-serif font-bold text-amber-200 tracking-wide">
-            The Starving Miracle
+            D&D Campaign Notes
           </h1>
-          <p className="text-xs sm:text-sm text-slate-400">
-            Campaign Codex & Tabletop Operations Hub
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-950/40 border border-amber-600/30 text-amber-300 text-xs font-medium">
+            <span>Campaign:</span>
+            <span className="text-amber-100 font-semibold">Starving Vilgeismar</span>
+          </div>
+          <p className="text-xs text-slate-400">
+            Obsidian Scribe & Tabletop Operations Hub
           </p>
         </div>
 
