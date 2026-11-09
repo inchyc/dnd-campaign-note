@@ -16,7 +16,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var webView: WebView
     // Connects to production Vercel deployment
-    private val appUrl = "https://starving-miracle-hub.vercel.app"
+    private val appUrl = "https://dnd-campaign-notes-hub.vercel.app"
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,12 +46,29 @@ class MainActivity : ComponentActivity() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val url = request?.url?.toString() ?: ""
                 // Open external links (e.g. 5e.tools) in external system browser
-                if (url.contains("5e.tools") || (!url.contains("localhost") && !url.contains("10.70.70.28") && !url.contains("vercel.app"))) {
+                if (url.contains("5e.tools") || (!url.contains("localhost") && !url.contains("10.70.70.28") && !url.contains("vercel.app") && !url.contains("android_asset"))) {
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                     startActivity(intent)
                     return true
                 }
                 return false
+            }
+
+            // Graceful reconnect screen on network failure or server update
+            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                super.onReceivedError(view, request, error)
+                if (request?.isForMainFrame == true) {
+                    view?.loadUrl("file:///android_asset/offline.html")
+                }
+            }
+
+            // Handle 502/503/504 deployment window errors gracefully
+            override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
+                super.onReceivedHttpError(view, request, errorResponse)
+                val status = errorResponse?.statusCode ?: 200
+                if (request?.isForMainFrame == true && (status == 502 || status == 503 || status == 504)) {
+                    view?.loadUrl("file:///android_asset/offline.html")
+                }
             }
         }
 

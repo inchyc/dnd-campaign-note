@@ -8,14 +8,18 @@ export interface Campaign {
   name: string;
   tagline?: string;
   vault: string; // folder (relative to project root) that holds the Obsidian vault
+  system?: string;
+  chapter?: string;
 }
 
 const DEFAULT_CAMPAIGNS: Campaign[] = [
   {
-    id: "starving-miracle",
-    name: "The Starving Miracle",
-    tagline: "Vilgeismar, a city under siege and starving",
+    id: "starving-vilgeismar",
+    name: "Starving Vilgeismar",
+    tagline: "A gothic city under siege, hunger gnawing at the lower quarters while shadows stir in the canals.",
     vault: "Starving Vilgeismar",
+    system: "D&D 5e",
+    chapter: "Chapter 1: The Withered Reach",
   },
 ];
 
@@ -32,7 +36,8 @@ export function listCampaigns(): Campaign[] {
 }
 
 export function getCampaign(id: string): Campaign | undefined {
-  return listCampaigns().find((c) => c.id === id);
+  const all = listCampaigns();
+  return all.find((c) => c.id === id) || (id === "starving-miracle" ? all[0] : undefined);
 }
 
 const storages = new Map<string, Storage>();

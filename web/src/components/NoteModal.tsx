@@ -25,6 +25,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
+import { getCachedData, setCachedData } from "@/lib/cache";
 
 interface NoteModalProps {
   path: string | null;
@@ -105,8 +106,15 @@ export function NoteModal({
       }
       setNoteData(data.note);
       setEditContent(data.note.raw || data.note.body);
+      setCachedData("note_" + notePath, data.note);
     } catch (err: any) {
-      setError(err.message || "Failed to load note");
+      const cached = getCachedData<any>("note_" + notePath);
+      if (cached?.data) {
+        setNoteData(cached.data);
+        setEditContent(cached.data.raw || cached.data.body);
+      } else {
+        setError(err.message || "Failed to load note");
+      }
     } finally {
       setLoading(false);
     }

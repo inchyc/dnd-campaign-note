@@ -39,6 +39,8 @@ import { AudioScribe } from "@/components/AudioScribe";
 import { ScribeReviewsView } from "@/components/ScribeReviewsView";
 import { DiceInitiativeDrawer } from "@/components/DiceInitiativeDrawer";
 import { GlobalSearchModal } from "@/components/GlobalSearchModal";
+import { NetworkStatusBar } from "@/components/NetworkStatusBar";
+import { setCachedData, getCachedData } from "@/lib/cache";
 
 interface CurrentUser {
   id: string;
@@ -78,6 +80,8 @@ interface HomeData {
 
 export default function CampaignHub() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [currentCampaign, setCurrentCampaign] = useState<{ id: string; name: string } | null>(null);
+  const [isCampaignMenuOpen, setIsCampaignMenuOpen] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
     "home" | "npcs" | "locations" | "lore" | "quests" | "party" | "scratchpad" | "audio" | "reviews"
@@ -110,6 +114,7 @@ export default function CampaignHub() {
       const data = await res.json();
       if (data.success && data.user) {
         setCurrentUser(data.user);
+        if (data.campaign) setCurrentCampaign(data.campaign);
       } else {
         setCurrentUser(null);
       }
@@ -144,9 +149,12 @@ export default function CampaignHub() {
       const data = await res.json();
       if (data.success) {
         setHomeData(data);
+        setCachedData("home_dashboard", data);
       }
     } catch (e) {
-      console.error("Failed to load home data", e);
+      console.warn("Loading cached home dashboard", e);
+      const cached = getCachedData<HomeData>("home_dashboard");
+      if (cached?.data) setHomeData(cached.data);
     }
   }, [currentUser]);
 
@@ -160,9 +168,12 @@ export default function CampaignHub() {
       const data = await res.json();
       if (data.success) {
         setCategoryNotes(data.notes || []);
+        setCachedData(`cat_${cat}`, data.notes || []);
       }
     } catch (e) {
-      console.error("Failed to load category notes", e);
+      console.warn(`Loading cached notes for ${cat}`, e);
+      const cached = getCachedData<NoteMeta[]>(`cat_${cat}`);
+      if (cached?.data) setCategoryNotes(cached.data);
     } finally {
       setCategoryLoading(false);
     }
@@ -175,9 +186,12 @@ export default function CampaignHub() {
       const data = await res.json();
       if (data.success) {
         setPartyData(data);
+        setCachedData("party_data", data);
       }
     } catch (e) {
-      console.error("Failed to load party data", e);
+      console.warn("Loading cached party data", e);
+      const cached = getCachedData<any>("party_data");
+      if (cached?.data) setPartyData(cached.data);
     }
   }, []);
 
@@ -294,10 +308,47 @@ export default function CampaignHub() {
               <h1 className="font-serif font-bold text-base sm:text-lg text-amber-200 group-hover:text-amber-100 tracking-wide flex items-center gap-2">
                 D&D Campaign Notes
               </h1>
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 hidden sm:flex">
-                <span className="text-amber-400/90 font-medium">Starving Vilgeismar</span>
-                <span>•</span>
-                <span>Codex & Operations</span>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsCampaignMenuOpen(!isCampaignMenuOpen);
+                  }}
+                  className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-amber-300 transition"
+                  title="Click to view or switch campaign"
+                >
+                  <span className="text-amber-400 font-semibold underline decoration-dotted">
+                    {currentCampaign?.name || "Starving Vilgeismar"}
+                  </span>
+                  <ChevronDown className="w-3 h-3 text-slate-400" />
+                  <span className="hidden sm:inline">• Codex</span>
+                </button>
+
+                {isCampaignMenuOpen && (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute left-0 top-full mt-2 w-60 p-2.5 rounded-xl bg-fantasy-850 border border-fantasy-700 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150"
+                  >
+                    <div className="p-2 border-b border-fantasy-700/60 mb-1">
+                      <div className="text-[10px] uppercase font-semibold text-slate-400">Active Campaign</div>
+                      <div className="font-serif font-bold text-sm text-amber-200">
+                        {currentCampaign?.name || "Starving Vilgeismar"}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCampaignMenuOpen(false);
+                        handleLogout();
+                      }}
+                      className="w-full text-left px-2.5 py-2 rounded-lg text-xs text-amber-300 hover:bg-amber-950/50 hover:text-amber-200 flex items-center justify-between transition group/btn font-medium"
+                    >
+                      <span>Switch Campaign</span>
+                      <ChevronRight className="w-3.5 h-3.5 group-hover/btn:translate-x-0.5 transition-transform" />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -845,6 +896,9 @@ export default function CampaignHub() {
           ]
         }
       />
+
+      {/* Network & Offline Status Pill */}
+      <NetworkStatusBar />
     </div>
   );
 }

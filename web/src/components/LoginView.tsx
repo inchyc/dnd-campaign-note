@@ -7,9 +7,12 @@ import {
   Users,
   Lock,
   ChevronRight,
+  ChevronLeft,
   Loader2,
   Sparkles,
   Info,
+  Scroll,
+  BookOpen,
 } from "lucide-react";
 
 interface HubUserPublic {
@@ -23,6 +26,8 @@ interface CampaignInfo {
   id: string;
   name: string;
   tagline?: string;
+  system?: string;
+  chapter?: string;
 }
 
 interface LoginViewProps {
@@ -31,27 +36,44 @@ interface LoginViewProps {
 
 export function LoginView({ onLoginSuccess }: LoginViewProps) {
   const [campaigns, setCampaigns] = useState<CampaignInfo[]>([]);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string>("starving-miracle");
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>("");
+  const [step, setStep] = useState<"campaign" | "character" | "pin">("campaign");
   const [users, setUsers] = useState<HubUserPublic[]>([]);
   const [selectedUser, setSelectedUser] = useState<HubUserPublic | null>(null);
   const [pin, setPin] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch campaigns
+  // Fetch campaigns on load
   useEffect(() => {
+    setLoading(true);
     fetch("/api/campaigns")
       .then((res) => res.json())
       .then((data) => {
         if (data.campaigns?.length) {
           setCampaigns(data.campaigns);
-          setSelectedCampaignId(data.campaigns[0].id);
+          const savedCampaign = localStorage.getItem("dnd_last_campaign");
+          const match = data.campaigns.find((c: CampaignInfo) => c.id === savedCampaign);
+          if (match) {
+            setSelectedCampaignId(match.id);
+            setStep("character");
+          } else if (data.campaigns.length === 1) {
+            setSelectedCampaignId(data.campaigns[0].id);
+            setStep("character");
+          } else {
+            setSelectedCampaignId(data.campaigns[0].id);
+            setStep("campaign");
+          }
         }
       })
-      .catch((err) => console.error("Error loading campaigns", err));
+      .catch((err) => {
+        console.error("Error loading campaigns", err);
+        setError("Unable to connect to campaign servers. Check network connection.");
+      })
+      .finally(() => setLoading(false));
   }, []);
 
-  // Fetch users for selected campaign
+  // Fetch users whenever selected campaign changes
   useEffect(() => {
     if (!selectedCampaignId) return;
     setLoading(true);
@@ -65,6 +87,17 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
       .catch((err) => console.error("Error loading campaign users", err))
       .finally(() => setLoading(false));
   }, [selectedCampaignId]);
+
+  const activeCampaign = campaigns.find((c) => c.id === selectedCampaignId) || campaigns[0];
+
+  const handleSelectCampaign = (c: CampaignInfo) => {
+    setSelectedCampaignId(c.id);
+    localStorage.setItem("dnd_last_campaign", c.id);
+    setSelectedUser(null);
+    setPin("");
+    setError(null);
+    setStep("character");
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,23 +137,87 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
           <h1 className="text-2xl sm:text-3xl font-serif font-bold text-amber-200 tracking-wide">
             D&D Campaign Notes
           </h1>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-950/40 border border-amber-600/30 text-amber-300 text-xs font-medium">
-            <span>Campaign:</span>
-            <span className="text-amber-100 font-semibold">Starving Vilgeismar</span>
-          </div>
+          {activeCampaign && (
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-950/40 border border-amber-600/30 text-amber-300 text-xs font-medium">
+              <span>Campaign:</span>
+              <span className="text-amber-100 font-semibold">{activeCampaign.name}</span>
+            </div>
+          )}
           <p className="text-xs text-slate-400">
             Obsidian Scribe & Tabletop Operations Hub
           </p>
         </div>
 
-        {/* Step 1: Choose Character / Player */}
-        {!selectedUser ? (
-          <div className="space-y-4">
+        {/* Step 0: Choose Campaign */}
+        {step === "campaign" && (
+          <div className="space-y-4 animate-in fade-in duration-150">
             <div className="flex items-center justify-between text-xs text-slate-400 border-b border-fantasy-700/60 pb-2">
+              <span className="font-semibold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                <Scroll className="w-3.5 h-3.5 text-amber-400" />
+                Select Campaign
+              </span>
+              <span>{campaigns.length} World{campaigns.length === 1 ? "" : "s"} Available</span>
+            </div>
+
+            {loading ? (
+              <div className="py-12 flex justify-center text-slate-500">
+                <Loader2 className="w-6 h-6 animate-spin text-amber-400" />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {campaigns.map((camp) => (
+                  <button
+                    key={camp.id}
+                    type="button"
+                    onClick={() => handleSelectCampaign(camp)}
+                    className="w-full text-left p-4 rounded-xl bg-fantasy-800/80 hover:bg-fantasy-700/90 border border-fantasy-700 hover:border-amber-500/60 transition group relative overflow-hidden shadow"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-serif font-bold text-base text-amber-200 group-hover:text-amber-100">
+                            {camp.name}
+                          </span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-950/60 text-amber-400 border border-amber-800/60">
+                            {camp.system || "D&D 5e"}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
+                          {camp.tagline || "Active campaign chronicle."}
+                        </p>
+                        {camp.chapter && (
+                          <div className="text-[11px] text-amber-300/80 font-mono pt-1">
+                            ⚔️ {camp.chapter}
+                          </div>
+                        )}
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all mt-1" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Step 1: Choose Character / Player */}
+        {step === "character" && (
+          <div className="space-y-4 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between text-xs text-slate-400 border-b border-fantasy-700/60 pb-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setStep("campaign")}
+                  className="inline-flex items-center gap-1 text-slate-400 hover:text-amber-300 transition"
+                  title="Switch to another campaign"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span className="underline">Change Campaign</span>
+                </button>
+              </div>
               <span className="font-semibold uppercase tracking-wider text-amber-300">
                 Select Your Character
               </span>
-              <span>{users.length} Adventurers Registered</span>
             </div>
 
             {loading ? (
@@ -139,6 +236,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
                         setSelectedUser(u);
                         setPin("");
                         setError(null);
+                        setStep("pin");
                       }}
                       className={`p-3.5 rounded-xl border text-left transition flex items-center justify-between group shadow ${
                         isScribe
@@ -164,8 +262,10 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
               </div>
             )}
           </div>
-        ) : (
-          /* Step 2: Enter PIN */
+        )}
+
+        {/* Step 2: Enter PIN */}
+        {step === "pin" && selectedUser && (
           <form onSubmit={handleLogin} className="space-y-5 animate-in fade-in duration-150">
             <div className="p-4 rounded-xl bg-fantasy-900/80 border border-fantasy-700 flex items-center justify-between">
               <div>
@@ -181,9 +281,14 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
               </div>
               <button
                 type="button"
-                onClick={() => setSelectedUser(null)}
-                className="text-xs text-amber-400 hover:text-amber-300 underline"
+                onClick={() => {
+                  setSelectedUser(null);
+                  setPin("");
+                  setStep("character");
+                }}
+                className="text-xs text-amber-400 hover:text-amber-300 underline inline-flex items-center gap-1"
               >
+                <ChevronLeft className="w-3 h-3" />
                 Change Player
               </button>
             </div>
