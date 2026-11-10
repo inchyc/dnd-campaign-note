@@ -141,6 +141,42 @@ export default function CampaignHub() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // Multi-tier Android hardware back button dispatcher
+  useEffect(() => {
+    (window as any).__handleAndroidBack = () => {
+      // Tier 1: Note Modal
+      if (selectedNotePath) {
+        setSelectedNotePath(null);
+        return true;
+      }
+      // Tier 2: Search Dialog
+      if (isSearchOpen) {
+        setIsSearchOpen(false);
+        return true;
+      }
+      // Tier 3: Dice & Initiative Drawer
+      if (isDiceOpen) {
+        setIsDiceOpen(false);
+        return true;
+      }
+      // Tier 4: Campaign Menu Dropdown
+      if (isCampaignMenuOpen) {
+        setIsCampaignMenuOpen(false);
+        return true;
+      }
+      // Tier 5: Sub-tab navigation -> Return to Home
+      if (activeTab !== "home") {
+        setActiveTab("home");
+        return true;
+      }
+      // Tier 6: At root Home screen -> allow Android native exit confirmation
+      return false;
+    };
+    return () => {
+      (window as any).__handleAndroidBack = undefined;
+    };
+  }, [selectedNotePath, isSearchOpen, isDiceOpen, isCampaignMenuOpen, activeTab]);
+
   // Fetch Home dashboard
   const fetchHome = useCallback(async () => {
     if (!currentUser) return;
@@ -294,7 +330,7 @@ export default function CampaignHub() {
   return (
     <div className="min-h-screen flex flex-col bg-fantasy-900 text-slate-200">
       {/* Top Header */}
-      <header className="sticky top-0 z-40 bg-fantasy-850/95 backdrop-blur-md border-b border-fantasy-700/80 px-4 sm:px-6 py-3">
+      <header className="sticky top-0 z-40 bg-fantasy-850/95 backdrop-blur-md border-b border-fantasy-700/80 px-4 sm:px-6 py-2.5 pt-safe">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
           {/* Logo & Campaign Title */}
           <div
@@ -545,9 +581,17 @@ export default function CampaignHub() {
 
                 <div className="space-y-2.5">
                   {!homeData?.quests?.length ? (
-                    <p className="text-xs text-slate-500 italic py-4 text-center">
-                      No active investigations recorded.
-                    </p>
+                    <div className="p-6 rounded-xl bg-fantasy-900/60 border border-fantasy-700/50 text-center space-y-2">
+                      <Compass className="w-6 h-6 text-amber-500/40 mx-auto" />
+                      <p className="text-xs text-slate-400 font-medium">No active inquiries recorded.</p>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("quests")}
+                        className="text-[11px] text-amber-400 hover:text-amber-300 font-semibold underline"
+                      >
+                        Explore all campaign quests
+                      </button>
+                    </div>
                   ) : (
                     homeData.quests.map((q) => (
                       <div
@@ -594,9 +638,17 @@ export default function CampaignHub() {
 
                 <div className="space-y-2">
                   {!homeData?.roster?.length ? (
-                    <p className="text-xs text-slate-500 italic py-4 text-center">
-                      No registered adventurers.
-                    </p>
+                    <div className="p-6 rounded-xl bg-fantasy-900/60 border border-fantasy-700/50 text-center space-y-2">
+                      <Shield className="w-6 h-6 text-amber-500/40 mx-auto" />
+                      <p className="text-xs text-slate-400 font-medium">No registered adventurers.</p>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("party")}
+                        className="text-[11px] text-amber-400 hover:text-amber-300 font-semibold underline"
+                      >
+                        Open Party Hub
+                      </button>
+                    </div>
                   ) : (
                     homeData.roster.map((pc) => (
                       <div
@@ -652,7 +704,40 @@ export default function CampaignHub() {
 
         {/* VIEW 2: CATEGORY DIRECTORIES (NPCs, Locations, Lore) */}
         {["npcs", "locations", "lore"].includes(activeTab) && (
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6">
+            {/* Mobile Sub-category Switcher (Codex Pill Selector) */}
+            <div className="md:hidden flex items-center justify-center p-1 bg-fantasy-800/80 rounded-xl border border-fantasy-700/60 max-w-sm mx-auto w-full">
+              <button
+                type="button"
+                onClick={() => setActiveTab("npcs")}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition ${
+                  activeTab === "npcs" ? "bg-amber-600 text-slate-950 shadow font-bold" : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>NPCs</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("locations")}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition ${
+                  activeTab === "locations" ? "bg-amber-600 text-slate-950 shadow font-bold" : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                <span>Places</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("lore")}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition ${
+                  activeTab === "lore" ? "bg-amber-600 text-slate-950 shadow font-bold" : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>Lore</span>
+              </button>
+            </div>
             {/* Category Header & Filters */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-fantasy-700/60 gap-4">
               <div>
@@ -780,47 +865,168 @@ export default function CampaignHub() {
           />
         )}
 
-        {/* VIEW 5: LIVE SCRATCHPAD */}
+        {/* VIEW 5: LIVE SCRATCHPAD & SCRIBE TOOLS */}
         {activeTab === "scratchpad" && (
-          <ScratchpadView isScribe={isScribe} currentUser={currentUser} />
+          <div className="space-y-4">
+            {isScribe && (
+              <div className="md:hidden flex items-center justify-center p-1 bg-fantasy-800/80 rounded-xl border border-fantasy-700/60 max-w-sm mx-auto w-full mb-3">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("scratchpad")}
+                  className="flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 bg-amber-600 text-slate-950 shadow font-bold"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>Scratchpad</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("audio")}
+                  className="flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 text-slate-400 hover:text-slate-200"
+                >
+                  <Mic className="w-3.5 h-3.5" />
+                  <span>Audio</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("reviews")}
+                  className="flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 text-slate-400 hover:text-slate-200"
+                >
+                  <Bot className="w-3.5 h-3.5" />
+                  <span>Reviews</span>
+                </button>
+              </div>
+            )}
+            <ScratchpadView isScribe={isScribe} currentUser={currentUser} />
+          </div>
         )}
 
         {/* VIEW 6: AUDIO SCRIBE (Scribe only) */}
         {activeTab === "audio" && isScribe && (
-          <AudioScribe
-            isScribe={isScribe}
-            sessionDate={homeData?.activeSessionDate || "2026-11-04"}
-          />
+          <div className="space-y-4">
+            <div className="md:hidden flex items-center justify-center p-1 bg-fantasy-800/80 rounded-xl border border-fantasy-700/60 max-w-sm mx-auto w-full mb-3">
+              <button
+                type="button"
+                onClick={() => setActiveTab("scratchpad")}
+                className="flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 text-slate-400 hover:text-slate-200"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Scratchpad</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("audio")}
+                className="flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 bg-amber-600 text-slate-950 shadow font-bold"
+              >
+                <Mic className="w-3.5 h-3.5" />
+                <span>Audio</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("reviews")}
+                className="flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 text-slate-400 hover:text-slate-200"
+              >
+                <Bot className="w-3.5 h-3.5" />
+                <span>Reviews</span>
+              </button>
+            </div>
+            <AudioScribe
+              isScribe={isScribe}
+              sessionDate={homeData?.activeSessionDate || "2026-11-04"}
+            />
+          </div>
         )}
 
         {/* VIEW 7: AI REVIEWS (Scribe only) */}
-        {activeTab === "reviews" && isScribe && <ScribeReviewsView />}
+        {activeTab === "reviews" && isScribe && (
+          <div className="space-y-4">
+            <div className="md:hidden flex items-center justify-center p-1 bg-fantasy-800/80 rounded-xl border border-fantasy-700/60 max-w-sm mx-auto w-full mb-3">
+              <button
+                type="button"
+                onClick={() => setActiveTab("scratchpad")}
+                className="flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 text-slate-400 hover:text-slate-200"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Scratchpad</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("audio")}
+                className="flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 text-slate-400 hover:text-slate-200"
+              >
+                <Mic className="w-3.5 h-3.5" />
+                <span>Audio</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("reviews")}
+                className="flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 bg-amber-600 text-slate-950 shadow font-bold"
+              >
+                <Bot className="w-3.5 h-3.5" />
+                <span>Reviews</span>
+              </button>
+            </div>
+            <ScribeReviewsView />
+          </div>
+        )}
       </main>
 
-      {/* Mobile Bottom Navigation Bar */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-fantasy-900/95 backdrop-blur-md border-t border-fantasy-700/80 px-2 py-2 flex items-center justify-around text-[10px]">
+      {/* Mobile Bottom Navigation Bar (5 Clean Ergonomic Tabs) */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-fantasy-900/95 backdrop-blur-md border-t border-fantasy-700/80 px-2 pt-2 pb-safe flex items-center justify-around text-[10px]">
         {[
-          { id: "home", label: "Home", icon: Sparkles },
-          { id: "npcs", label: "NPCs", icon: Users },
-          { id: "locations", label: "Places", icon: MapPin },
-          { id: "lore", label: "Lore", icon: BookOpen },
-          { id: "quests", label: "Quests", icon: Compass },
-          { id: "party", label: "Party", icon: Backpack },
-          { id: "scratchpad", label: "Notes", icon: Edit3 },
+          {
+            id: "home",
+            label: "Home",
+            icon: Sparkles,
+            active: activeTab === "home",
+            onClick: () => setActiveTab("home"),
+          },
+          {
+            id: "quests",
+            label: "Quests",
+            icon: Compass,
+            active: activeTab === "quests",
+            onClick: () => setActiveTab("quests"),
+          },
+          {
+            id: "codex",
+            label: "Codex",
+            icon: BookOpen,
+            active: ["npcs", "locations", "lore"].includes(activeTab),
+            onClick: () => {
+              if (!["npcs", "locations", "lore"].includes(activeTab)) {
+                setActiveTab("npcs");
+              }
+            },
+          },
+          {
+            id: "party",
+            label: "Party",
+            icon: Backpack,
+            active: activeTab === "party",
+            onClick: () => setActiveTab("party"),
+          },
+          {
+            id: "scratchpad",
+            label: "Notes",
+            icon: Edit3,
+            active: ["scratchpad", "audio", "reviews"].includes(activeTab),
+            onClick: () => setActiveTab("scratchpad"),
+          },
         ].map((tab) => {
           const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg transition ${
-                isActive ? "text-amber-400 font-bold" : "text-slate-400 hover:text-slate-200"
+              onClick={tab.onClick}
+              className={`flex-1 flex flex-col items-center gap-1 py-1 px-1 rounded-xl transition ${
+                tab.active ? "text-amber-400 font-bold" : "text-slate-400 hover:text-slate-200"
               }`}
             >
-              <Icon className="w-4 h-4" />
-              <span>{tab.label}</span>
+              <div className={`p-1 rounded-lg ${tab.active ? "bg-amber-500/15" : ""}`}>
+                <Icon className={`w-5 h-5 ${tab.active ? "stroke-[2.5]" : "stroke-[1.75]"}`} />
+              </div>
+              <span className="text-[10px] leading-tight">{tab.label}</span>
             </button>
           );
         })}

@@ -2,15 +2,21 @@ package com.example.starvingmiracle
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.*
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 
 class MainActivity : ComponentActivity() {
 
@@ -27,8 +33,34 @@ class MainActivity : ComponentActivity() {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 101)
         }
 
+        // Wrap WebView in a dark container that respects Android Window Insets (status bar & gesture bar)
+        val rootLayout = FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor("#0e1117"))
+        }
+
         webView = WebView(this)
-        setContentView(webView)
+        rootLayout.addView(
+            webView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+        setContentView(rootLayout)
+
+        // Apply safe-area insets to prevent status bar clock & gesture navigation bar from overlapping web content
+        ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { view, insets ->
+            val systemBars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            view.updatePadding(
+                left = systemBars.left,
+                top = systemBars.top,
+                right = systemBars.right,
+                bottom = systemBars.bottom
+            )
+            insets
+        }
 
         webView.settings.apply {
             javaScriptEnabled = true
@@ -79,18 +111,43 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Handle Android Back button
+        // Handle Android Back button with multi-tier hierarchy & recording-aware exit confirmation
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (webView.canGoBack()) {
-                    webView.goBack()
-                } else {
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
+                // First query web app: let it close open modals, drawers, or switch back to Home tab
+                webView.evaluateJavascript("window.__handleAndroidBack ? window.__handleAndroidBack() : false") { result ->
+                    val handled = result?.replace("\"", "")?.trim()?.equals("true", ignoreCase = true) == true
+                    if (!handled) {
+                        // At root Home: check if session recording is active before showing confirmation
+                        webView.evaluateJavascript("window.__isAudioRecording ? window.__isAudioRecording() : false") { recResult ->
+                            val isRecording = recResult?.replace("\"", "")?.trim()?.equals("true", ignoreCase = true) == true
+                            showExitDialog(isRecording)
+                        }
+                    }
                 }
             }
         })
 
         webView.loadUrl(appUrl)
+    }
+
+    private fun showExitDialog(isRecording: Boolean) {
+        val title = if (isRecording) "⚠️ Live Session Recording Active" else "Exit D&D Campaign Notes?"
+        val message = if (isRecording) {
+            "An audio session recording is currently active!\n\nExiting now will stop and discard your recording.\n\nAre you sure you want to stop recording and exit?"
+        } else {
+            "Are you sure you want to close the campaign companion?"
+        }
+        val positiveText = if (isRecording) "Stop & Exit" else "Exit"
+        val negativeText = if (isRecording) "Keep Recording" else "Cancel"
+
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton(positiveText) { _, _ ->
+                finish()
+            }
+            .setNegativeButton(negativeText, null)
+            .show()
     }
 }

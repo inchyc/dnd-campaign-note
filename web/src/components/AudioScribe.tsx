@@ -73,6 +73,22 @@ export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
     fetchChunks();
   }, [fetchChunks]);
 
+  // Synchronize recording state with Android native bridge and prevent accidental web navigation
+  useEffect(() => {
+    (window as any).__isAudioRecording = () => isRecording;
+    if (!isRecording) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "A live session recording is currently in progress. Are you sure you want to leave?";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      (window as any).__isAudioRecording = () => false;
+    };
+  }, [isRecording]);
+
   // Audio level visualizer loop
   const updateLevel = () => {
     if (!analyserRef.current) return;
