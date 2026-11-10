@@ -19,6 +19,7 @@ android/app/build/
 android/build/
 android/local.properties
 *.apk
+!release/*.apk
 
 # OS generated files
 Thumbs.db

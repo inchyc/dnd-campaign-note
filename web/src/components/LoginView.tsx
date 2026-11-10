@@ -385,6 +385,25 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
               });
           }}
         />
+
+        {/* Android App & Version Footer */}
+        <div className="pt-2 text-center text-xs text-slate-500 flex items-center justify-center gap-3 border-t border-fantasy-700/50">
+          <a
+            href="https://github.com/inchyc/dnd-campaign-note/raw/main/release/D&D-Campaign-Notes.apk"
+            className="hover:text-amber-400 transition flex items-center gap-1 font-medium"
+          >
+            <span>📱 Download Android App (v1.1.0)</span>
+          </a>
+          <span>•</span>
+          <a
+            href="https://github.com/inchyc/dnd-campaign-note/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-amber-400 transition"
+          >
+            Releases & Changelog
+          </a>
+        </div>
       </div>
     </div>
   );

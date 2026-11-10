@@ -28,6 +28,8 @@ import {
   Flame,
   ChevronDown,
   ChevronUp,
+  Smartphone,
+  Download,
 } from "lucide-react";
 import { LoginView } from "@/components/LoginView";
 import { NoteModal } from "@/components/NoteModal";
@@ -472,6 +474,21 @@ export default function CampaignHub() {
                       <span>Switch Campaign</span>
                       <ChevronRight className="w-3.5 h-3.5 group-hover/btn:translate-x-0.5 transition-transform" />
                     </button>
+
+                    <div className="pt-1 border-t border-fantasy-700/60">
+                      <a
+                        href="https://github.com/inchyc/dnd-campaign-note/raw/main/release/D&D-Campaign-Notes.apk"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full text-left px-2.5 py-2 rounded-lg text-xs bg-fantasy-800 hover:bg-fantasy-750 text-slate-300 hover:text-white border border-fantasy-700 flex items-center justify-between transition group/btn font-medium"
+                        title="Download Android APK directly"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <Smartphone className="w-3.5 h-3.5 text-amber-400" /> Get Android App (v1.1.0)
+                        </span>
+                        <Download className="w-3.5 h-3.5 text-slate-400 group-hover/btn:text-amber-400" />
+                      </a>
+                    </div>
                   </div>
                 )}
               </div>
