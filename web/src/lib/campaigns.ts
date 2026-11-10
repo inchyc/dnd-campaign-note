@@ -47,8 +47,11 @@ export function getStorage(campaign: Campaign): Storage {
   if (s) return s;
 
   // Cloud Mode: GitHub REST API storage (for Vercel deployment)
-  const isCloud = getEnv("STORAGE_BACKEND") === "github" || !!getEnv("GITHUB_TOKEN");
-  const repo = getEnv("GITHUB_REPO");
+  const isCloud = getEnv("STORAGE_BACKEND") === "github" || !!getEnv("GITHUB_TOKEN") || process.env.VERCEL === "1";
+  let repo = getEnv("GITHUB_REPO") || "inchyc/dnd-campaign-note";
+  if (!repo || repo.includes("starving-miracle-hub")) {
+    repo = "inchyc/dnd-campaign-note";
+  }
   if (isCloud && repo) {
     s = new GitHubStorage({
       repo,

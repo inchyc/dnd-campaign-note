@@ -135,7 +135,7 @@ export class GitHubStorage implements Storage {
     try {
       const res = await fetch(
         `https://api.github.com/repos/${this.repo}/git/trees/${this.branch}?recursive=1`,
-        { headers: this.headers(), next: { revalidate: 15 } }
+        { headers: this.headers(), redirect: "follow", next: { revalidate: 15 } }
       );
       if (!res.ok) return [];
       const data = await res.json();
@@ -151,7 +151,7 @@ export class GitHubStorage implements Storage {
     const fp = this.fullPath(p);
     const res = await fetch(
       `https://api.github.com/repos/${this.repo}/contents/${encodeURIComponent(fp).replace(/%2F/g, "/")}?ref=${this.branch}`,
-      { headers: this.headers() }
+      { headers: this.headers(), redirect: "follow" }
     );
     if (!res.ok) throw new Error(`GitHub file not found: ${p}`);
     const data = await res.json();
@@ -165,7 +165,7 @@ export class GitHubStorage implements Storage {
     try {
       const checkRes = await fetch(
         `https://api.github.com/repos/${this.repo}/contents/${encodeURIComponent(fp).replace(/%2F/g, "/")}?ref=${this.branch}`,
-        { headers: this.headers() }
+        { headers: this.headers(), redirect: "follow" }
       );
       if (checkRes.ok) {
         const checkData = await checkRes.json();
@@ -191,6 +191,7 @@ export class GitHubStorage implements Storage {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
+        redirect: "follow",
       }
     );
 
@@ -207,7 +208,7 @@ export class GitHubStorage implements Storage {
     const fp = this.fullPath(p);
     const res = await fetch(
       `https://api.github.com/repos/${this.repo}/contents/${encodeURIComponent(fp).replace(/%2F/g, "/")}?ref=${this.branch}`,
-      { headers: this.headers() }
+      { headers: this.headers(), redirect: "follow" }
     );
     if (!res.ok) throw new Error(`GitHub file not found: ${p}`);
     const data = await res.json();
