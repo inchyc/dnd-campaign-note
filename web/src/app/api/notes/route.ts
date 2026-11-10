@@ -5,8 +5,10 @@ export const dynamic = "force-dynamic";
 
 export const GET = handle(async (req: Request) => {
   const ctx = await requireCtx();
-  const cat = new URL(req.url).searchParams.get("category") as Category | null;
-  const notes = (await visibleNotes(ctx)).filter((n) => !cat || n.category === cat);
+  const url = new URL(req.url);
+  const cat = url.searchParams.get("category") as Category | null;
+  const forceFresh = url.searchParams.get("refresh") === "1" || url.searchParams.get("fresh") === "1";
+  const notes = (await visibleNotes(ctx, forceFresh)).filter((n) => !cat || n.category === cat);
   return Response.json({ success: true, notes: notes.map(toMeta) });
 });
 

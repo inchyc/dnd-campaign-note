@@ -129,26 +129,41 @@ export class GitHubStorage implements Storage {
   }
 
   private async fetchTree() {
-    if (this.treeCache && Date.now() - this.treeCache.at < 15_000) {
+    // Cache git tree for 10 minutes to prevent exhausting API limits
+    if (this.treeCache && Date.now() - this.treeCache.at < 600_000) {
       return this.treeCache.tree;
     }
     try {
       const res = await fetch(
         `https://api.github.com/repos/${this.repo}/git/trees/${this.branch}?recursive=1`,
-        { headers: this.headers(), redirect: "follow", next: { revalidate: 15 } }
+        { headers: this.headers(), redirect: "follow", next: { revalidate: 600 } }
       );
-      if (!res.ok) return [];
+      if (!res.ok) return this.treeCache?.tree || [];
       const data = await res.json();
       const tree = (data.tree || []) as Array<{ path: string; type: string; sha: string }>;
       this.treeCache = { at: Date.now(), tree };
       return tree;
     } catch {
-      return [];
+      return this.treeCache?.tree || [];
     }
   }
 
   async read(p: string): Promise<string> {
     const fp = this.fullPath(p);
+    // 1. Try raw.githubusercontent.com CDN (zero 60 req/hr rate limits, fast global edge)
+    try {
+      const rawUrl = `https://raw.githubusercontent.com/${this.repo}/${this.branch}/${encodeURI(fp)}`;
+      const h: Record<string, string> = { "User-Agent": "CampaignHub" };
+      if (this.token) h.Authorization = `Bearer ${this.token}`;
+      const res = await fetch(rawUrl, { headers: h, redirect: "follow" });
+      if (res.ok) {
+        return await res.text();
+      }
+    } catch {
+      /* fallback to REST API */
+    }
+
+    // 2. Fallback to GitHub REST API (handles private repos if token is provided)
     const res = await fetch(
       `https://api.github.com/repos/${this.repo}/contents/${encodeURIComponent(fp).replace(/%2F/g, "/")}?ref=${this.branch}`,
       { headers: this.headers(), redirect: "follow" }
@@ -206,6 +221,19 @@ export class GitHubStorage implements Storage {
 
   async readBinary(p: string): Promise<Buffer> {
     const fp = this.fullPath(p);
+    try {
+      const rawUrl = `https://raw.githubusercontent.com/${this.repo}/${this.branch}/${encodeURI(fp)}`;
+      const h: Record<string, string> = { "User-Agent": "CampaignHub" };
+      if (this.token) h.Authorization = `Bearer ${this.token}`;
+      const res = await fetch(rawUrl, { headers: h, redirect: "follow" });
+      if (res.ok) {
+        const ab = await res.arrayBuffer();
+        return Buffer.from(ab);
+      }
+    } catch {
+      /* fallback */
+    }
+
     const res = await fetch(
       `https://api.github.com/repos/${this.repo}/contents/${encodeURIComponent(fp).replace(/%2F/g, "/")}?ref=${this.branch}`,
       { headers: this.headers(), redirect: "follow" }
@@ -222,7 +250,17 @@ export class GitHubStorage implements Storage {
   async exists(p: string): Promise<boolean> {
     const fp = this.fullPath(p);
     const tree = await this.fetchTree();
-    return tree.some((item) => item.path === fp);
+    if (tree.length > 0) {
+      return tree.some((item) => item.path === fp);
+    }
+    // Fallback if tree was rate limited: check raw CDN directly
+    try {
+      const rawUrl = `https://raw.githubusercontent.com/${this.repo}/${this.branch}/${encodeURI(fp)}`;
+      const res = await fetch(rawUrl, { method: "HEAD", redirect: "follow" });
+      return res.ok;
+    } catch {
+      return false;
+    }
   }
 
   async list(dir: string): Promise<DirEntry[]> {

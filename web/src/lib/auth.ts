@@ -68,14 +68,27 @@ export function verifyPin(pin: string, stored?: string): boolean {
 
 const USERS_PATH = ".hub/users.json";
 
+let bundledManifest: { users?: HubUser[] } | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  bundledManifest = require("@/generated/vault-manifest.json");
+} catch {
+  bundledManifest = null;
+}
+
 export async function loadUsers(storage: Storage): Promise<HubUser[]> {
-  if (!(await storage.exists(USERS_PATH))) return [];
   try {
-    const parsed = JSON.parse(await storage.read(USERS_PATH)) as UsersFile;
-    return parsed.users || [];
-  } catch {
-    return [];
+    const raw = await storage.read(USERS_PATH);
+    const parsed = JSON.parse(raw) as UsersFile;
+    if (parsed.users && parsed.users.length > 0) return parsed.users;
+  } catch (err) {
+    console.warn("Storage read failed for users.json, falling back to manifest/defaults:", err);
   }
+
+  if (bundledManifest?.users && bundledManifest.users.length > 0) {
+    return bundledManifest.users;
+  }
+  return [];
 }
 
 export async function saveUsers(storage: Storage, users: HubUser[]) {

@@ -104,62 +104,93 @@ function firstSummary(body: string): string {
   return "";
 }
 
-// ---------- index (cached briefly; invalidated on write) ----------
+// ---------- index (cached; preloaded from manifest for 0ms cold starts) ----------
+
+let bundledManifest: { campaignId?: string; notes?: IndexedNote[] } | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  bundledManifest = require("@/generated/vault-manifest.json");
+} catch {
+  bundledManifest = null;
+}
 
 const cache = new Map<string, { at: number; notes: IndexedNote[] }>();
-const TTL = 3000;
+const TTL = 10 * 60 * 1000; // 10 minutes cache
 
 export function invalidateIndex(campaignId: string) {
   cache.delete(campaignId);
 }
 
-export async function loadIndex(ctx: Pick<Ctx, "campaign" | "storage">): Promise<IndexedNote[]> {
+export async function loadIndex(ctx: Pick<Ctx, "campaign" | "storage">, forceFresh = false): Promise<IndexedNote[]> {
   const hit = cache.get(ctx.campaign.id);
-  if (hit && Date.now() - hit.at < TTL) return hit.notes;
+  if (!forceFresh && hit && Date.now() - hit.at < TTL) return hit.notes;
 
-  const files = (await walk(ctx.storage, "Notes")).filter((f) => f.toLowerCase().endsWith(".md"));
-  const notes: IndexedNote[] = [];
-  await Promise.all(
-    files.map(async (file) => {
-      const parts = file.split("/"); // Notes / <Top> / ...
-      const top = TOP_FOLDERS[parts[1]];
-      if (!top || parts.length < 3) return;
-      try {
-        const raw = await ctx.storage.read(file);
-        const parsed = matter(raw);
-        const fm = (parsed.data || {}) as Record<string, any>;
-        const stem = parts[parts.length - 1].replace(/\.md$/i, "");
-        const isSecretPath = parts.includes("Secrets") || stem.startsWith("Secret - ");
-        const secret = isSecretPath || fm.secret === true || fm.dm_only === true;
-        const sub = top.sub || (parts.length > 3 ? parts[2] : undefined);
-        notes.push({
-          path: file,
-          title: cleanTitle(stem),
-          category: top.category,
-          sub,
-          summary: firstSummary(parsed.content),
-          status: str(fm.status),
-          faction: str(fm.faction)?.replace(/\[\[|\]\]/g, ""),
-          location: str(fm.location)?.replace(/\[\[|\]\]/g, ""),
-          priority: str(fm.priority),
-          secret,
-          revealed: fm.revealed === true || fm.revealed === "true",
-          owner: str(fm.owner),
-          visibleToParty: fm.visible_to_party === true || fm.visible_to_party === "true",
-          playerField: str(fm.player),
-          mtime: await ctx.storage.mtime(file),
-          raw,
-          body: parsed.content,
-          frontmatter: fm,
-        });
-      } catch {
-        /* skip unreadable file */
-      }
-    })
-  );
-  notes.sort((a, b) => a.title.localeCompare(b.title));
-  cache.set(ctx.campaign.id, { at: Date.now(), notes });
-  return notes;
+  // Prime immediately from manifest if available and not in cache
+  if (!forceFresh && !hit && bundledManifest?.notes && (bundledManifest.campaignId === ctx.campaign.id || ctx.campaign.id === "starving-miracle")) {
+    const manifestNotes = bundledManifest.notes as IndexedNote[];
+    cache.set(ctx.campaign.id, { at: Date.now(), notes: manifestNotes });
+    return manifestNotes;
+  }
+
+  try {
+    const files = (await walk(ctx.storage, "Notes")).filter((f) => f.toLowerCase().endsWith(".md"));
+    if (files.length === 0 && bundledManifest?.notes && (bundledManifest.campaignId === ctx.campaign.id || ctx.campaign.id === "starving-miracle")) {
+      return bundledManifest.notes as IndexedNote[];
+    }
+    const notes: IndexedNote[] = [];
+    await Promise.all(
+      files.map(async (file) => {
+        const parts = file.split("/"); // Notes / <Top> / ...
+        const top = TOP_FOLDERS[parts[1]];
+        if (!top || parts.length < 3) return;
+        try {
+          const raw = await ctx.storage.read(file);
+          const parsed = matter(raw);
+          const fm = (parsed.data || {}) as Record<string, any>;
+          const stem = parts[parts.length - 1].replace(/\.md$/i, "");
+          const isSecretPath = parts.includes("Secrets") || stem.startsWith("Secret - ");
+          const secret = isSecretPath || fm.secret === true || fm.dm_only === true;
+          const sub = top.sub || (parts.length > 3 ? parts[2] : undefined);
+          notes.push({
+            path: file,
+            title: cleanTitle(stem),
+            category: top.category,
+            sub,
+            summary: firstSummary(parsed.content),
+            status: str(fm.status),
+            faction: str(fm.faction)?.replace(/\[\[|\]\]/g, ""),
+            location: str(fm.location)?.replace(/\[\[|\]\]/g, ""),
+            priority: str(fm.priority),
+            secret,
+            revealed: fm.revealed === true || fm.revealed === "true",
+            owner: str(fm.owner),
+            visibleToParty: fm.visible_to_party === true || fm.visible_to_party === "true",
+            playerField: str(fm.player),
+            mtime: await ctx.storage.mtime(file),
+            raw,
+            body: parsed.content,
+            frontmatter: fm,
+          });
+        } catch {
+          /* skip unreadable file */
+        }
+      })
+    );
+    if (notes.length > 0) {
+      notes.sort((a, b) => a.title.localeCompare(b.title));
+      cache.set(ctx.campaign.id, { at: Date.now(), notes });
+      return notes;
+    }
+  } catch (err) {
+    console.warn("Failed loading live index from storage:", err);
+  }
+
+  // Fallback to existing cache or manifest
+  if (hit) return hit.notes;
+  if (bundledManifest?.notes && (bundledManifest.campaignId === ctx.campaign.id || ctx.campaign.id === "starving-miracle")) {
+    return bundledManifest.notes as IndexedNote[];
+  }
+  return [];
 }
 
 // ---------- permissions ----------
@@ -197,8 +228,8 @@ export function canEdit(ctx: Ctx, n: NoteMeta): boolean {
   return n.category === "party" && ownsCharacterNote(ctx.user, n);
 }
 
-export async function visibleNotes(ctx: Ctx): Promise<IndexedNote[]> {
-  const all = await loadIndex(ctx);
+export async function visibleNotes(ctx: Ctx, forceFresh = false): Promise<IndexedNote[]> {
+  const all = await loadIndex(ctx, forceFresh);
   return all.filter((n) => canView(ctx, n, all));
 }
 
