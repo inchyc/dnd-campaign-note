@@ -8,11 +8,17 @@ export const GET = handle(async (req: Request) => {
   const url = new URL(req.url);
   const cat = url.searchParams.get("category") as Category | null;
   const forceFresh = url.searchParams.get("refresh") === "1" || url.searchParams.get("fresh") === "1";
-  const includeArchived = url.searchParams.get("archived") === "1";
-  const notes = (await visibleNotes(ctx, forceFresh, includeArchived)).filter((n) => {
+  const archivedMode = url.searchParams.get("archived") || "all";
+
+  const includeArchivedInLoad = archivedMode === "only" || archivedMode === "all" || archivedMode === "1";
+  const allVisible = await visibleNotes(ctx, forceFresh, includeArchivedInLoad);
+
+  const notes = allVisible.filter((n) => {
     if (cat && n.category !== cat) return false;
-    if (includeArchived) return n.status === "archived";
-    return n.status !== "archived";
+    const isArchived = (n.status || "").toLowerCase() === "archived";
+    if (archivedMode === "only") return isArchived;
+    if (archivedMode === "all" || archivedMode === "1") return true; // Returns both active and archived so UI views can partition them
+    return !isArchived; // default: only active
   });
   return Response.json({ success: true, notes: notes.map(toMeta) });
 });

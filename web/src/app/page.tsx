@@ -401,6 +401,7 @@ export default function CampaignHub() {
   // Filtered category notes
   const subFolders = Array.from(new Set(categoryNotes.map((n) => n.sub).filter(Boolean))) as string[];
   const filteredNotes = categoryNotes.filter((n) => {
+    if (n.status === "archived") return false;
     const matchesQuery =
       !filterQuery.trim() ||
       n.title.toLowerCase().includes(filterQuery.toLowerCase()) ||
@@ -490,7 +491,7 @@ export default function CampaignHub() {
                         title="Download Android APK directly"
                       >
                         <span className="flex items-center gap-1.5">
-                          <Smartphone className="w-3.5 h-3.5 text-amber-400" /> Get Android App (v1.1.1)
+                          <Smartphone className="w-3.5 h-3.5 text-amber-400" /> Get Android App (v1.1.2)
                         </span>
                         <Download className="w-3.5 h-3.5 text-slate-400 group-hover/btn:text-amber-400" />
                       </a>

@@ -24,6 +24,7 @@ import {
   ChevronRight,
   AlertTriangle,
   Archive,
+  CheckCircle2,
 } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
 import { getCachedData, setCachedData } from "@/lib/cache";
@@ -63,6 +64,14 @@ interface NoteData {
   canPlayerNote: boolean;
   mtime: number;
   raw?: string;
+}
+
+function questBucket(status?: string): "open" | "active" | "resolved" | "archived" {
+  const s = (status || "").toLowerCase();
+  if (/(archived|archive)/.test(s)) return "archived";
+  if (/(complete|resolved|solved|closed|done)/.test(s)) return "resolved";
+  if (/(active|progress|ongoing|investigating)/.test(s)) return "active";
+  return "open";
 }
 
 export function NoteModal({
@@ -307,6 +316,27 @@ export function NoteModal({
     }
   };
 
+  // Handle quest status update (Open, Active, Resolved)
+  const handleQuestStatusUpdate = async (nextStatus: string) => {
+    if (!currentPath) return;
+    try {
+      const res = await fetch("/api/note/meta", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: currentPath, key: "status", value: nextStatus }),
+      });
+      if (res.ok) {
+        await fetchNote(currentPath);
+        if (onNoteUpdated) onNoteUpdated();
+      } else {
+        const data = await res.json();
+        alert(data.error || "Failed to update quest status");
+      }
+    } catch {
+      alert("Network error updating status");
+    }
+  };
+
   // Handle saving raw markdown
   const handleSaveEdit = async () => {
     if (!currentPath || !noteData) return;
@@ -523,6 +553,46 @@ export function NoteModal({
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Quest Status Quick Toggle & Mark Complete */}
+            {noteData?.meta.category === "quest" && (
+              <div className="flex items-center gap-1.5">
+                {questBucket(noteData.meta.status || noteData.frontmatter?.status) !== "resolved" ? (
+                  <button
+                    type="button"
+                    onClick={() => handleQuestStatusUpdate("resolved")}
+                    className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/60 text-emerald-200 transition flex items-center gap-1.5 shadow"
+                    title="Mark this investigation as resolved/completed"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Mark Complete</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleQuestStatusUpdate("active")}
+                    className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/60 text-amber-200 transition flex items-center gap-1.5 shadow"
+                    title="Re-open this investigation as active"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Re-open</span>
+                  </button>
+                )}
+
+                <div className="flex items-center gap-1 bg-fantasy-800 border border-fantasy-600 rounded-lg px-2 py-0.5 text-xs">
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase hidden sm:inline">Status:</span>
+                  <select
+                    value={questBucket(noteData.meta.status || noteData.frontmatter?.status)}
+                    onChange={(e) => handleQuestStatusUpdate(e.target.value)}
+                    className="bg-transparent text-amber-300 font-semibold text-xs focus:outline-none cursor-pointer"
+                  >
+                    <option value="open" className="bg-fantasy-900 text-sky-300">Open</option>
+                    <option value="active" className="bg-fantasy-900 text-amber-300">Active</option>
+                    <option value="resolved" className="bg-fantasy-900 text-emerald-300">Resolved</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
             {/* Archive / Vote to Archive Button */}
             {noteData && (
               <button
@@ -661,6 +731,29 @@ export function NoteModal({
                     if (key === "status") badgeColor = "bg-amber-950/40 border-amber-700/50 text-amber-300";
                     if (key === "faction") badgeColor = "bg-blue-950/40 border-blue-700/50 text-blue-300";
                     if (key === "location") badgeColor = "bg-emerald-950/40 border-emerald-700/50 text-emerald-300";
+
+                    if (key === "status") {
+                      return (
+                        <div
+                          key={key}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border bg-amber-950/40 border-amber-700/50 text-amber-300"
+                        >
+                          <span className="text-slate-400 uppercase tracking-wider font-semibold text-[10px]">
+                            status:
+                          </span>
+                          <select
+                            value={String(value || "").toLowerCase()}
+                            onChange={(e) => handleQuestStatusUpdate(e.target.value)}
+                            className="bg-transparent font-medium text-amber-300 text-xs focus:outline-none cursor-pointer underline"
+                          >
+                            <option value="open" className="bg-fantasy-900 text-sky-300">open</option>
+                            <option value="active" className="bg-fantasy-900 text-amber-300">active</option>
+                            <option value="resolved" className="bg-fantasy-900 text-emerald-300">resolved</option>
+                            <option value="archived" className="bg-fantasy-900 text-slate-400">archived</option>
+                          </select>
+                        </div>
+                      );
+                    }
 
                     return (
                       <div

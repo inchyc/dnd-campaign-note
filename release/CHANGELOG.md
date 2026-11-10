@@ -1,5 +1,13 @@
 # Release & Version Changelog
 
+## [v1.1.2] - 2026-11-11
+### Fixed & Added
+- **Interactive Quest Tasks**: Resolved the "That line changed, reload the note and try again" error when checking task checkboxes in note modals. Tasks now locate their exact lines in raw markdown with fallback content matching regardless of frontmatter offsets.
+- **Quest Completion & Status Controls**:
+  - Added a 1-click **"✓ Mark Complete"** (and "↺ Re-open") action button directly in the Note Modal header.
+  - Added an interactive **Status dropdown** in the Note Modal header and frontmatter badge row to easily switch between `Open`, `Active`, and `Resolved`.
+- **Codex & Quest Board Empty State Fix**: Resolved the bug causing NPCs, Locations, Lore, and Quests to display 0 records / "No matching records found in this category".
+
 ## [v1.1.1] - 2026-11-11
 ### Fixed & Improved
 - **Edge-to-Edge System Bar Layout**: Resolved status bar clock and gesture navigation bar clipping on modern tall Android devices (Pixel 11 Pro XL) by enforcing window edge-to-edge layout, setting dark theme colors (`#0e1117`), and dynamically padding system bar insets.

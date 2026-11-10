@@ -14,12 +14,46 @@ export const POST = handle(async (req: Request) => {
   let ok = true;
   await mutateNote(ctx, note.path, (file) => {
     const { lines, eol } = splitLines(file);
-    const current = lines[line];
-    if (current === undefined || !TASK_RE.test(current) || stripComments(current).trim() !== String(text || "").replace(/\r$/, "").trim()) {
+    const cleanTarget = String(text || "").replace(/\r$/, "").trim();
+
+    // 1. Direct index match
+    let targetIdx = -1;
+    if (lines[line] !== undefined && TASK_RE.test(lines[line]) && stripComments(lines[line]).trim() === cleanTarget) {
+      targetIdx = line;
+    }
+
+    // 2. Scan file for exact match (handles line offsets caused by frontmatter)
+    if (targetIdx === -1) {
+      for (let i = 0; i < lines.length; i++) {
+        if (TASK_RE.test(lines[i]) && stripComments(lines[i]).trim() === cleanTarget) {
+          targetIdx = i;
+          break;
+        }
+      }
+    }
+
+    // 3. Match task content body regardless of leading marker / checkbox state
+    if (targetIdx === -1) {
+      const targetBody = cleanTarget.replace(/^\s*[-*]\s+\[( |x|X)\]\s*/i, "").trim();
+      if (targetBody) {
+        for (let i = 0; i < lines.length; i++) {
+          if (TASK_RE.test(lines[i])) {
+            const body = stripComments(lines[i]).replace(/^\s*[-*]\s+\[( |x|X)\]\s*/i, "").trim();
+            if (body === targetBody) {
+              targetIdx = i;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (targetIdx === -1) {
       ok = false;
       return file;
     }
-    lines[line] = current.replace(/\[( |x|X)\]/, checked ? "[x]" : "[ ]");
+
+    lines[targetIdx] = lines[targetIdx].replace(/\[( |x|X)\]/, checked ? "[x]" : "[ ]");
     return lines.join(eol);
   });
   if (!ok) throw new HttpError(409, "That line changed, reload the note and try again.", { conflict: true });
