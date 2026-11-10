@@ -40,6 +40,8 @@ import { ScribeReviewsView } from "@/components/ScribeReviewsView";
 import { DiceInitiativeDrawer } from "@/components/DiceInitiativeDrawer";
 import { GlobalSearchModal } from "@/components/GlobalSearchModal";
 import { NetworkStatusBar } from "@/components/NetworkStatusBar";
+import { CreateNoteModal } from "@/components/CreateNoteModal";
+import { CreateCampaignModal } from "@/components/CreateCampaignModal";
 import { setCachedData, getCachedData } from "@/lib/cache";
 
 interface CurrentUser {
@@ -61,6 +63,9 @@ interface NoteMeta {
   priority?: string;
   owner?: string;
   visibleToParty?: boolean;
+  ownerType?: "dm" | "shared" | "private";
+  ownerLabel?: string;
+  archiveVotes?: string[];
 }
 
 interface HomeData {
@@ -105,10 +110,17 @@ export default function CampaignHub() {
   const [selectedNotePath, setSelectedNotePath] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isDiceOpen, setIsDiceOpen] = useState(false);
+  const [isCreateNoteOpen, setIsCreateNoteOpen] = useState(false);
+  const [createNoteCategory, setCreateNoteCategory] = useState("npc");
+  const [isCreateCampaignOpen, setIsCreateCampaignOpen] = useState(false);
+  const [isPlayerViewActive, setIsPlayerViewActive] = useState(false);
 
   // Check login on mount
   const checkAuth = useCallback(async () => {
     setAuthLoading(true);
+    if (typeof document !== "undefined") {
+      setIsPlayerViewActive(document.cookie.includes("hub_view_as_player=1"));
+    }
     try {
       const res = await fetch("/api/me");
       const data = await res.json();
@@ -144,9 +156,17 @@ export default function CampaignHub() {
   // Multi-tier Android hardware back button dispatcher
   useEffect(() => {
     (window as any).__handleAndroidBack = () => {
-      // Tier 1: Note Modal
+      // Tier 1: Modals
       if (selectedNotePath) {
         setSelectedNotePath(null);
+        return true;
+      }
+      if (isCreateNoteOpen) {
+        setIsCreateNoteOpen(false);
+        return true;
+      }
+      if (isCreateCampaignOpen) {
+        setIsCreateCampaignOpen(false);
         return true;
       }
       // Tier 2: Search Dialog
@@ -175,7 +195,7 @@ export default function CampaignHub() {
     return () => {
       (window as any).__handleAndroidBack = undefined;
     };
-  }, [selectedNotePath, isSearchOpen, isDiceOpen, isCampaignMenuOpen, activeTab]);
+  }, [selectedNotePath, isCreateNoteOpen, isCreateCampaignOpen, isSearchOpen, isDiceOpen, isCampaignMenuOpen, activeTab]);
 
   // Fetch Home dashboard
   const fetchHome = useCallback(async () => {
@@ -200,7 +220,7 @@ export default function CampaignHub() {
     setFilterQuery("");
     setFilterSub("all");
     try {
-      const res = await fetch(`/api/notes?category=${cat}`);
+      const res = await fetch(`/api/notes?category=${cat}&archived=1`);
       const data = await res.json();
       if (data.success) {
         setCategoryNotes(data.notes || []);
@@ -252,6 +272,42 @@ export default function CampaignHub() {
     setCurrentUser(null);
   };
 
+  const handleTogglePlayerView = () => {
+    const next = !isPlayerViewActive;
+    setIsPlayerViewActive(next);
+    if (typeof document !== "undefined") {
+      if (next) {
+        document.cookie = "hub_view_as_player=1; path=/; max-age=86400";
+      } else {
+        document.cookie = "hub_view_as_player=0; path=/; max-age=0";
+      }
+    }
+    fetchHome();
+    if (["npcs", "locations", "lore", "quests"].includes(activeTab)) {
+      const catMap: Record<string, string> = {
+        npcs: "npc",
+        locations: "location",
+        lore: "lore",
+        quests: "quest",
+      };
+      fetchCategory(catMap[activeTab]);
+    }
+    if (activeTab === "party") {
+      fetchParty();
+    }
+  };
+
+  const handleOpenCreateNote = (tab: string) => {
+    const catMap: Record<string, string> = {
+      npcs: "npc",
+      locations: "location",
+      lore: "lore",
+      quests: "quest",
+    };
+    setCreateNoteCategory(catMap[tab] || "npc");
+    setIsCreateNoteOpen(true);
+  };
+
   const handleGenerateRecap = async () => {
     setRecapGenerating(true);
     try {
@@ -281,13 +337,31 @@ export default function CampaignHub() {
   };
 
   const handleToggleCharacterVisibility = async (path: string, currentVisible: boolean) => {
-    const res = await fetch("/api/note/meta", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path, key: "visible_to_party", value: !currentVisible }),
-    });
-    if (res.ok) {
-      fetchParty();
+    // Optimistic UI toggle
+    if (partyData?.characters) {
+      setPartyData({
+        ...partyData,
+        characters: partyData.characters.map((c: any) =>
+          c.path === path ? { ...c, visibleToParty: !currentVisible } : c
+        ),
+      });
+    }
+    try {
+      const res = await fetch("/api/note/meta", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, key: "visible_to_party", value: !currentVisible }),
+      });
+      if (res.ok) {
+        await fetchParty();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert("Could not update visibility: " + (err.error || res.statusText));
+        await fetchParty();
+      }
+    } catch (e: any) {
+      alert("Error updating visibility: " + e.message);
+      await fetchParty();
     }
   };
 
@@ -364,21 +438,36 @@ export default function CampaignHub() {
                 {isCampaignMenuOpen && (
                   <div
                     onClick={(e) => e.stopPropagation()}
-                    className="absolute left-0 top-full mt-2 w-60 p-2.5 rounded-xl bg-fantasy-850 border border-fantasy-700 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150"
+                    className="absolute left-0 top-full mt-2 w-64 p-2.5 rounded-xl bg-fantasy-850 border border-fantasy-700 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150 space-y-2"
                   >
-                    <div className="p-2 border-b border-fantasy-700/60 mb-1">
+                    <div className="p-2 border-b border-fantasy-700/60">
                       <div className="text-[10px] uppercase font-semibold text-slate-400">Active Campaign</div>
                       <div className="font-serif font-bold text-sm text-amber-200">
                         {currentCampaign?.name || "Starving Vilgeismar"}
                       </div>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCampaignMenuOpen(false);
+                        setIsCreateCampaignOpen(true);
+                      }}
+                      className="w-full text-left px-2.5 py-2 rounded-lg text-xs bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-600/40 flex items-center justify-between transition group/btn font-semibold"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Plus className="w-3.5 h-3.5 text-amber-400" /> Create New Campaign
+                      </span>
+                      <ChevronRight className="w-3.5 h-3.5 group-hover/btn:translate-x-0.5 transition-transform" />
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => {
                         setIsCampaignMenuOpen(false);
                         handleLogout();
                       }}
-                      className="w-full text-left px-2.5 py-2 rounded-lg text-xs text-amber-300 hover:bg-amber-950/50 hover:text-amber-200 flex items-center justify-between transition group/btn font-medium"
+                      className="w-full text-left px-2.5 py-2 rounded-lg text-xs text-slate-400 hover:bg-fantasy-800 hover:text-slate-200 flex items-center justify-between transition group/btn font-medium"
                     >
                       <span>Switch Campaign</span>
                       <ChevronRight className="w-3.5 h-3.5 group-hover/btn:translate-x-0.5 transition-transform" />
@@ -438,6 +527,29 @@ export default function CampaignHub() {
               <Dices className="w-4 h-4 text-amber-400" />
               <span className="hidden sm:inline">Table Tools</span>
             </button>
+
+            {/* Player View Toggle (Scribe / DM Only) */}
+            {isScribe && (
+              <button
+                type="button"
+                onClick={handleTogglePlayerView}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition ${
+                  isPlayerViewActive
+                    ? "bg-rose-950/70 border-rose-500 text-rose-300 shadow-sm"
+                    : "bg-fantasy-800 hover:bg-fantasy-700 border-fantasy-700 text-slate-300"
+                }`}
+                title={
+                  isPlayerViewActive
+                    ? "Player View is ACTIVE: DM secrets and private notes are hidden. Click to restore DM view."
+                    : "Switch to Player View to preview exactly what players see."
+                }
+              >
+                {isPlayerViewActive ? <EyeOff className="w-3.5 h-3.5 text-rose-400" /> : <Eye className="w-3.5 h-3.5 text-amber-400" />}
+                <span className="hidden sm:inline">
+                  {isPlayerViewActive ? "Player View: ON" : "Player View"}
+                </span>
+              </button>
+            )}
 
             {/* Active User Badge */}
             <div className="flex items-center gap-2 pl-2 border-l border-fantasy-700/80">
@@ -754,7 +866,7 @@ export default function CampaignHub() {
                 </p>
               </div>
 
-              {/* Search & Sub-category Filter */}
+              {/* Search & Sub-category Filter & + New Note */}
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="relative">
                   <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
@@ -781,6 +893,17 @@ export default function CampaignHub() {
                     ))}
                   </select>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => handleOpenCreateNote(activeTab)}
+                  className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-amber-600 hover:bg-amber-500 text-slate-950 flex items-center gap-1.5 transition shadow"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>
+                    New {activeTab === "npcs" ? "NPC" : activeTab === "locations" ? "Location" : "Lore"}
+                  </span>
+                </button>
               </div>
             </div>
 
@@ -806,15 +929,25 @@ export default function CampaignHub() {
                         <h4 className="font-serif font-bold text-sm text-amber-200 group-hover:text-amber-100 leading-snug">
                           {note.title}
                         </h4>
-                        <div className="flex items-center gap-1 flex-shrink-0">
+                        <div className="flex items-center gap-1 flex-shrink-0 flex-wrap justify-end">
                           {note.sub && (
                             <span className="px-1.5 py-0.2 text-[9px] rounded bg-fantasy-800 text-amber-400 border border-fantasy-700">
                               {note.sub}
                             </span>
                           )}
-                          {note.secret && (
-                            <span className="p-0.5 rounded bg-rose-950/60 text-rose-400 border border-rose-800/60" title="Secret / DM only">
-                              <EyeOff className="w-3 h-3" />
+                          {note.ownerType === "dm" && (
+                            <span className="px-1.5 py-0.2 text-[9px] font-semibold rounded bg-rose-950/70 text-rose-300 border border-rose-800/70 flex items-center gap-0.5" title="DM Secret (hidden from players)">
+                              <EyeOff className="w-2.5 h-2.5" /> Secret
+                            </span>
+                          )}
+                          {note.ownerType === "private" && (
+                            <span className="px-1.5 py-0.2 text-[9px] font-semibold rounded bg-purple-950/70 text-purple-300 border border-purple-800/70 flex items-center gap-0.5" title="Private Character Note">
+                              👤 {note.ownerLabel || "Private"}
+                            </span>
+                          )}
+                          {note.ownerType === "shared" && (
+                            <span className="px-1.5 py-0.2 text-[9px] font-semibold rounded bg-emerald-950/70 text-emerald-300 border border-emerald-800/70 flex items-center gap-0.5" title="Party Shared Note">
+                              👥 Shared
                             </span>
                           )}
                         </div>
@@ -846,7 +979,9 @@ export default function CampaignHub() {
             quests={categoryNotes}
             onSelectQuest={(path) => setSelectedNotePath(path)}
             isScribe={isScribe}
+            currentUser={currentUser}
             onStatusChange={handleQuestStatusChange}
+            onRefresh={() => fetchCategory("quest")}
           />
         )}
 
@@ -1101,6 +1236,28 @@ export default function CampaignHub() {
             { character: "Ruik", name: "Jake" },
           ]
         }
+      />
+
+      {/* Create Note Modal */}
+      <CreateNoteModal
+        isOpen={isCreateNoteOpen}
+        onClose={() => setIsCreateNoteOpen(false)}
+        defaultCategory={createNoteCategory}
+        isScribe={isScribe}
+        onNoteCreated={(newPath) => {
+          setSelectedNotePath(newPath);
+          fetchCategory(createNoteCategory);
+        }}
+      />
+
+      {/* Create Campaign Modal */}
+      <CreateCampaignModal
+        isOpen={isCreateCampaignOpen}
+        onClose={() => setIsCreateCampaignOpen(false)}
+        onCampaignCreated={async () => {
+          setIsCreateCampaignOpen(false);
+          await handleLogout();
+        }}
       />
 
       {/* Network & Offline Status Pill */}

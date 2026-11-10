@@ -104,6 +104,8 @@ export class GitHubStorage implements Storage {
   private prefix: string;
   private treeCache: { at: number; tree: Array<{ path: string; type: string; sha: string }> } | null = null;
   private localMtimes = new Map<string, number>();
+  private memoryWrites = new Map<string, string>();
+  private memoryBinary = new Map<string, Buffer>();
 
   constructor(opts: { repo: string; token?: string; branch?: string; prefix?: string }) {
     this.repo = opts.repo;
@@ -149,6 +151,9 @@ export class GitHubStorage implements Storage {
   }
 
   async read(p: string): Promise<string> {
+    if (this.memoryWrites.has(p)) {
+      return this.memoryWrites.get(p)!;
+    }
     const fp = this.fullPath(p);
     // 1. Try raw.githubusercontent.com CDN (zero 60 req/hr rate limits, fast global edge)
     try {
@@ -174,52 +179,67 @@ export class GitHubStorage implements Storage {
   }
 
   async write(p: string, content: string): Promise<void> {
-    const fp = this.fullPath(p);
-    // Find existing sha if present
-    let sha: string | undefined;
-    try {
-      const checkRes = await fetch(
-        `https://api.github.com/repos/${this.repo}/contents/${encodeURIComponent(fp).replace(/%2F/g, "/")}?ref=${this.branch}`,
-        { headers: this.headers(), redirect: "follow" }
-      );
-      if (checkRes.ok) {
-        const checkData = await checkRes.json();
-        sha = checkData.sha;
-      }
-    } catch {
-      /* ignore */
-    }
-
-    const body: Record<string, any> = {
-      message: `Update ${p} via Campaign Hub`,
-      content: Buffer.from(content).toString("base64"),
-      branch: this.branch,
-    };
-    if (sha) body.sha = sha;
-
-    const res = await fetch(
-      `https://api.github.com/repos/${this.repo}/contents/${encodeURIComponent(fp).replace(/%2F/g, "/")}`,
-      {
-        method: "PUT",
-        headers: {
-          ...this.headers(),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-        redirect: "follow",
-      }
-    );
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Failed to commit to GitHub: ${errText}`);
-    }
-
+    // Always update in-memory buffer immediately for fast read-your-own-writes
+    this.memoryWrites.set(p, content);
     this.localMtimes.set(p, Date.now());
-    this.treeCache = null; // Invalidate cache
+
+    if (!this.token) {
+      console.warn(`GitHubStorage: GITHUB_TOKEN not configured; write for '${p}' stored in-memory.`);
+      return;
+    }
+
+    const fp = this.fullPath(p);
+    try {
+      // Find existing sha if present
+      let sha: string | undefined;
+      try {
+        const checkRes = await fetch(
+          `https://api.github.com/repos/${this.repo}/contents/${encodeURIComponent(fp).replace(/%2F/g, "/")}?ref=${this.branch}`,
+          { headers: this.headers(), redirect: "follow" }
+        );
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          sha = checkData.sha;
+        }
+      } catch {
+        /* ignore */
+      }
+
+      const body: Record<string, any> = {
+        message: `Update ${p} via Campaign Hub`,
+        content: Buffer.from(content).toString("base64"),
+        branch: this.branch,
+      };
+      if (sha) body.sha = sha;
+
+      const res = await fetch(
+        `https://api.github.com/repos/${this.repo}/contents/${encodeURIComponent(fp).replace(/%2F/g, "/")}`,
+        {
+          method: "PUT",
+          headers: {
+            ...this.headers(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+          redirect: "follow",
+        }
+      );
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.warn(`Failed to commit to GitHub (persisted in memory): ${errText}`);
+      } else {
+        this.treeCache = null; // Invalidate cache
+      }
+    } catch (err) {
+      console.warn(`Failed to write to GitHub (persisted in memory):`, err);
+    }
   }
 
   async readBinary(p: string): Promise<Buffer> {
+    if (this.memoryBinary.has(p)) {
+      return this.memoryBinary.get(p)!;
+    }
     const fp = this.fullPath(p);
     try {
       const rawUrl = `https://raw.githubusercontent.com/${this.repo}/${this.branch}/${encodeURI(fp)}`;
@@ -244,10 +264,12 @@ export class GitHubStorage implements Storage {
   }
 
   async writeBinary(p: string, data: Buffer): Promise<void> {
+    this.memoryBinary.set(p, data);
     await this.write(p, data.toString("base64"));
   }
 
   async exists(p: string): Promise<boolean> {
+    if (this.memoryWrites.has(p) || this.memoryBinary.has(p)) return true;
     const fp = this.fullPath(p);
     const tree = await this.fetchTree();
     if (tree.length > 0) {
@@ -278,6 +300,23 @@ export class GitHubStorage implements Storage {
       const isDir = parts.length > 1 || item.type === "tree";
       if (!directChildren.has(name) || isDir) {
         directChildren.set(name, isDir);
+      }
+    }
+
+    // Merge in-memory written files
+    const dirPrefix = dir ? `${dir.replace(/^\/+|\/+$/g, "")}/` : "";
+    for (const pathKey of [...this.memoryWrites.keys(), ...this.memoryBinary.keys()]) {
+      const norm = pathKey.replace(/^\/+/, "");
+      if (norm.startsWith(dirPrefix)) {
+        const rest = norm.slice(dirPrefix.length);
+        if (rest) {
+          const parts = rest.split("/");
+          const name = parts[0];
+          const isDir = parts.length > 1;
+          if (!directChildren.has(name) || isDir) {
+            directChildren.set(name, isDir);
+          }
+        }
       }
     }
 

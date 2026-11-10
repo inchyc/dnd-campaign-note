@@ -150,6 +150,7 @@ export interface Ctx {
   storage: Storage;
   user: HubUser;
   isScribe: boolean;
+  viewAsPlayer?: boolean;
 }
 
 export class HttpError extends Error {
@@ -171,7 +172,8 @@ export async function requireCtx(opts?: { scribe?: boolean }): Promise<Ctx> {
   if (!user) throw new HttpError(401, "Unknown user");
   const isScribe = user.role === "scribe";
   if (opts?.scribe && !isScribe) throw new HttpError(403, "Scribe only");
-  return { campaign, storage, user, isScribe };
+  const viewAsPlayer = jar.get("hub_view_as_player")?.value === "1";
+  return { campaign, storage, user, isScribe, viewAsPlayer };
 }
 
 /** Wraps a route handler so thrown HttpErrors become JSON responses. */

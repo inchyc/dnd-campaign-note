@@ -23,16 +23,37 @@ const DEFAULT_CAMPAIGNS: Campaign[] = [
   },
 ];
 
-/** Campaign registry: `campaigns.json` in the project root, falling back to the default. */
+const runtimeCampaigns: Campaign[] = [...DEFAULT_CAMPAIGNS];
+
+/** Campaign registry: `campaigns.json` in the project root, falling back to runtime/defaults. */
 export function listCampaigns(): Campaign[] {
   try {
     const raw = fs.readFileSync(path.join(ROOT, "campaigns.json"), "utf-8");
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length) return parsed;
+    if (Array.isArray(parsed) && parsed.length) {
+      // Merge with runtimeCampaigns to keep any dynamically created ones
+      for (const c of parsed) {
+        if (!runtimeCampaigns.some((x) => x.id === c.id)) runtimeCampaigns.push(c);
+      }
+      return runtimeCampaigns;
+    }
   } catch {
     /* fall through */
   }
-  return DEFAULT_CAMPAIGNS;
+  return runtimeCampaigns;
+}
+
+export function addCampaign(campaign: Campaign): void {
+  const existing = listCampaigns();
+  if (existing.some((c) => c.id === campaign.id)) {
+    throw new Error(`Campaign with ID '${campaign.id}' already exists.`);
+  }
+  runtimeCampaigns.push(campaign);
+  try {
+    fs.writeFileSync(path.join(ROOT, "campaigns.json"), JSON.stringify(runtimeCampaigns, null, 2), "utf-8");
+  } catch (e) {
+    console.warn("Could not persist campaigns.json locally:", e);
+  }
 }
 
 export function getCampaign(id: string): Campaign | undefined {

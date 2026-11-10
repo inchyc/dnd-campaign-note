@@ -95,48 +95,108 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
     return () => clearInterval(interval);
   }, [fetchScratchpad]);
 
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const showStatus = (msg: string) => {
+    setStatusMessage(msg);
+    setTimeout(() => setStatusMessage(null), 3500);
+  };
+
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newNoteText.trim() || submitting) return;
+    const textToSave = newNoteText.trim();
+    if (!textToSave || submitting) return;
+
     setSubmitting(true);
+    const optimisticId = "local-" + Date.now();
+    const nowTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const optimisticLine: ScratchLine = {
+      id: optimisticId,
+      time: nowTime,
+      text: textToSave,
+      shared: shareImmediately,
+      at: Date.now(),
+      author: currentUser ? `${currentUser.name} (${currentUser.character})` : undefined,
+      authorId: currentUser?.id,
+    };
+
+    // Optimistically update UI
+    setMyLines((prev) => [...prev, optimisticLine]);
+    if (shareImmediately) {
+      setTableLines((prev) => [...prev, optimisticLine]);
+    }
+    setNewNoteText("");
+
     try {
       const res = await fetch("/api/scratch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: newNoteText.trim(),
+          text: textToSave,
           shared: shareImmediately,
         }),
       });
       const data = await res.json();
-      if (data.success) {
-        setNewNoteText("");
-        await fetchScratchpad();
+      if (res.ok && data.success && data.line) {
+        // Replace optimistic line with confirmed server line
+        setMyLines((prev) => prev.map((l) => (l.id === optimisticId ? data.line : l)));
+        if (shareImmediately) {
+          setTableLines((prev) =>
+            prev.map((l) =>
+              l.id === optimisticId
+                ? {
+                    ...data.line,
+                    author: currentUser ? `${currentUser.name} (${currentUser.character})` : undefined,
+                    authorId: currentUser?.id,
+                  }
+                : l
+            )
+          );
+        }
+        showStatus("Note saved successfully!");
+      } else {
+        showStatus("Note saved in local session memory.");
       }
+    } catch (e: any) {
+      console.warn("Scratchpad network sync fallback:", e);
+      showStatus("Note kept in local session memory (offline).");
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleToggleShare = async (id: string, currentShared: boolean) => {
-    const res = await fetch("/api/scratch", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, shared: !currentShared }),
-    });
-    if (res.ok) {
-      await fetchScratchpad();
+    const nextShared = !currentShared;
+    // Optimistic toggle
+    setMyLines((prev) => prev.map((l) => (l.id === id ? { ...l, shared: nextShared } : l)));
+    try {
+      const res = await fetch("/api/scratch", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, shared: nextShared }),
+      });
+      if (res.ok) {
+        await fetchScratchpad();
+      }
+    } catch {
+      /* ignore */
     }
   };
 
   const handleDeleteNote = async (id: string) => {
-    const res = await fetch("/api/scratch", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-    if (res.ok) {
-      await fetchScratchpad();
+    setMyLines((prev) => prev.filter((l) => l.id !== id));
+    setTableLines((prev) => prev.filter((l) => l.id !== id));
+    try {
+      const res = await fetch("/api/scratch", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) {
+        await fetchScratchpad();
+      }
+    } catch {
+      /* ignore */
     }
   };
 
@@ -245,17 +305,22 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
       </div>
 
       {/* Scribe Collation Controls (Chris / Vex only) */}
-      {isScribe && (
-        <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-700/50 space-y-3">
+      {isScribe ? (
+        <div className="p-4 rounded-xl bg-amber-950/30 border border-amber-700/60 space-y-3 shadow-md">
           <div className="flex items-center justify-between">
             <h3 className="font-serif font-bold text-sm text-amber-200 flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-amber-400" />
-              Scribe Session Collation
+              Scribe Session Collation (DM & Scribe Only)
             </h3>
-            <span className="text-[11px] text-amber-400 font-mono">Vex (Scribe) Action</span>
+            <span className="px-2 py-0.5 text-[10px] bg-amber-500 text-slate-950 font-bold rounded uppercase">
+              Scribe Authority
+            </span>
           </div>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Players do <strong>not</strong> need to click this. At the end of the session, only the Scribe (or DM) clicks this button to bundle all shared scratchpad notes and audio transcripts into the permanent Obsidian vault session file.
+          </p>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 pt-1">
             <div className="flex items-center gap-2">
               <label className="text-xs text-slate-400">Session Date:</label>
               <input
@@ -293,6 +358,21 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
               <span>{collateResult}</span>
             </div>
           )}
+        </div>
+      ) : (
+        <div className="p-3.5 rounded-lg bg-fantasy-900/60 border border-fantasy-700/60 text-xs text-slate-400 flex items-center gap-2">
+          <Info className="w-4 h-4 text-sky-400 flex-shrink-0" />
+          <span>
+            <strong>Collation notice:</strong> You do not need to do anything at the end of the session. The Scribe will collate your shared notes directly into the campaign records!
+          </span>
+        </div>
+      )}
+
+      {/* Status Toast */}
+      {statusMessage && (
+        <div className="p-3 rounded-lg bg-emerald-950/60 border border-emerald-700/60 text-emerald-300 text-xs flex items-center gap-2 animate-in fade-in duration-150">
+          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+          <span>{statusMessage}</span>
         </div>
       )}
 

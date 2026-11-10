@@ -14,7 +14,9 @@ import {
   Scroll,
   BookOpen,
   RefreshCw,
+  Plus,
 } from "lucide-react";
+import { CreateCampaignModal } from "./CreateCampaignModal";
 
 interface HubUserPublic {
   id: string;
@@ -63,6 +65,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
   const [loading, setLoading] = useState(false);
   const [usersLoading, setUsersLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   // Load users for a given campaign
   const fetchUsersForCampaign = useCallback(async (campId: string) => {
@@ -211,6 +214,14 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
                 </button>
               ))}
             </div>
+
+            <button
+              type="button"
+              onClick={() => setIsCreateOpen(true)}
+              className="w-full p-3.5 rounded-xl border border-dashed border-amber-600/50 hover:border-amber-400 bg-amber-950/20 hover:bg-amber-950/40 text-amber-300 font-semibold text-xs flex items-center justify-center gap-2 transition shadow"
+            >
+              <Plus className="w-4 h-4" /> Create New Campaign & Vault
+            </button>
           </div>
         )}
 
@@ -358,6 +369,22 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
             </button>
           </form>
         )}
+
+        <CreateCampaignModal
+          isOpen={isCreateOpen}
+          onClose={() => setIsCreateOpen(false)}
+          onCampaignCreated={(newCamp) => {
+            setIsCreateOpen(false);
+            fetch("/api/campaigns", { cache: "no-store" })
+              .then((r) => r.json())
+              .then((d) => {
+                if (d.campaigns) setCampaigns(d.campaigns);
+                setSelectedCampaignId(newCamp.id);
+                fetchUsersForCampaign(newCamp.id);
+                setStep("character");
+              });
+          }}
+        />
       </div>
     </div>
   );

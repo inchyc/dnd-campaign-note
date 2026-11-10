@@ -23,6 +23,7 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertTriangle,
+  Archive,
 } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
 import { getCachedData, setCachedData } from "@/lib/cache";
@@ -50,6 +51,9 @@ interface NoteData {
     priority?: string;
     owner?: string;
     visibleToParty?: boolean;
+    ownerType?: "dm" | "shared" | "private";
+    ownerLabel?: string;
+    archiveVotes?: string[];
   };
   frontmatter: Record<string, string>;
   body: string;
@@ -397,6 +401,42 @@ export function NoteModal({
     }
   };
 
+  const handleArchiveOrVote = async () => {
+    if (!currentPath) return;
+    try {
+      if (isScribe || noteData?.canEdit) {
+        if (!confirm("Are you sure you want to archive this note?")) return;
+        const res = await fetch("/api/note/meta", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: currentPath, key: "archive", value: true }),
+        });
+        if (res.ok) {
+          alert("Note has been archived.");
+          handleForceClose();
+          if (onNoteUpdated) onNoteUpdated();
+        }
+      } else {
+        const res = await fetch("/api/note/meta", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: currentPath, key: "archive_vote", value: true }),
+        });
+        const data = await res.json();
+        if (data.archived) {
+          alert("Consensus reached: Note has been moved to Archive!");
+          handleForceClose();
+          if (onNoteUpdated) onNoteUpdated();
+        } else {
+          alert(`Your vote to archive has been recorded (${data.votes || 1}/2 votes needed).`);
+          await fetchNote(currentPath);
+        }
+      }
+    } catch (e: any) {
+      alert("Failed to archive: " + e.message);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -452,6 +492,21 @@ export function NoteModal({
                     {noteData.meta.sub}
                   </span>
                 )}
+                {noteData?.meta.ownerType === "dm" && (
+                  <span className="px-2 py-0.5 text-[10px] font-semibold rounded bg-rose-950/70 text-rose-300 border border-rose-800/70 flex items-center gap-1">
+                    <EyeOff className="w-3 h-3" /> 🔒 DM Secret
+                  </span>
+                )}
+                {noteData?.meta.ownerType === "private" && (
+                  <span className="px-2 py-0.5 text-[10px] font-semibold rounded bg-purple-950/70 text-purple-300 border border-purple-800/70 flex items-center gap-1">
+                    👤 Private ({noteData.meta.ownerLabel || "PC"})
+                  </span>
+                )}
+                {noteData?.meta.ownerType === "shared" && (
+                  <span className="px-2 py-0.5 text-[10px] font-semibold rounded bg-emerald-950/70 text-emerald-300 border border-emerald-800/70 flex items-center gap-1">
+                    👥 Party Shared
+                  </span>
+                )}
                 {noteData?.meta.secret && (
                   <span className="px-2 py-0.5 text-[10px] font-medium rounded bg-rose-950/60 text-rose-300 border border-rose-800/50 flex items-center gap-1">
                     <EyeOff className="w-3 h-3" /> Secret
@@ -468,6 +523,29 @@ export function NoteModal({
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Archive / Vote to Archive Button */}
+            {noteData && (
+              <button
+                type="button"
+                onClick={handleArchiveOrVote}
+                className="px-2.5 py-1 text-xs font-medium rounded-lg border border-fantasy-600 bg-fantasy-800 text-slate-300 hover:text-rose-300 hover:border-rose-700/60 transition flex items-center gap-1.5"
+                title={
+                  isScribe || noteData.canEdit
+                    ? "Archive this note"
+                    : "Cast vote to archive note (2 player votes needed)"
+                }
+              >
+                <Archive className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">
+                  {isScribe || noteData.canEdit
+                    ? "Archive"
+                    : (noteData.meta as any).archiveVotes?.length
+                    ? `Vote Archive (${(noteData.meta as any).archiveVotes.length}/2)`
+                    : "Vote Archive"}
+                </span>
+              </button>
+            )}
+
             {/* Scribe Secret Reveal Toggle */}
             {isScribe && noteData?.meta.secret && (
               <button

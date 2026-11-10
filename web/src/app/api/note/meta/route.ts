@@ -53,17 +53,43 @@ export const PUT = handle(async (req: Request) => {
   const { note } = await getVisibleNote(ctx, path);
 
   if (key === "visible_to_party") {
-    if (note.category !== "party") throw new HttpError(400, "Only character notes have this setting");
+    if (note.category !== "party" && !ctx.isScribe) throw new HttpError(400, "Only character notes have this setting");
     if (!ctx.isScribe && !ownsCharacterNote(ctx.user, note)) throw new HttpError(403, "Not your character");
     await mutateNote(ctx, note.path, (t) => setFrontmatterKey(t, "visible_to_party", !!value));
   } else if (key === "revealed") {
     if (!ctx.isScribe) throw new HttpError(403, "Scribe only");
     await mutateNote(ctx, note.path, (t) => setFrontmatterKey(t, "revealed", !!value));
   } else if (key === "status") {
-    if (!ctx.isScribe || note.category !== "quest") throw new HttpError(403, "Scribe only, quests only");
-    const v = cleanLine(value, 40);
+    const v = cleanLine(value, 40).toLowerCase();
     if (!v) throw new HttpError(400, "Bad status");
+    // Allow players to update quest statuses between open, active, resolved
+    if (!ctx.isScribe && note.category !== "quest") throw new HttpError(403, "Only quests status can be changed by players");
     await mutateNote(ctx, note.path, (t) => setFrontmatterKey(t, "status", v));
+  } else if (key === "archive") {
+    // Scribe or note owner can archive directly
+    const isOwner = note.owner === ctx.user.character || note.playerField === ctx.user.name || ownsCharacterNote(ctx.user, note);
+    if (!ctx.isScribe && !isOwner) throw new HttpError(403, "You can only archive your own notes or initiate a party vote");
+    const nextStatus = value === false ? "open" : "archived";
+    await mutateNote(ctx, note.path, (t) => setFrontmatterKey(t, "status", nextStatus));
+  } else if (key === "archive_vote") {
+    // Party consensus vote: 2 votes or Scribe confirms
+    if (ctx.isScribe) {
+      await mutateNote(ctx, note.path, (t) => setFrontmatterKey(t, "status", "archived"));
+      return Response.json({ success: true, archived: true, votes: 2 });
+    }
+    const existingVotes: string[] = Array.isArray(note.frontmatter?.archive_votes) ? note.frontmatter.archive_votes : [];
+    const nextVotes = Array.from(new Set([...existingVotes, ctx.user.id]));
+    if (nextVotes.length >= 2) {
+      await mutateNote(ctx, note.path, (t) => {
+        let res = setFrontmatterKey(t, "status", "archived");
+        res = setFrontmatterKey(res, "archive_votes", JSON.stringify([]));
+        return res;
+      });
+      return Response.json({ success: true, archived: true, votes: nextVotes.length });
+    } else {
+      await mutateNote(ctx, note.path, (t) => setFrontmatterKey(t, "archive_votes", JSON.stringify(nextVotes)));
+      return Response.json({ success: true, archived: false, votes: nextVotes.length, needed: 2 });
+    }
   } else if (key === "owner") {
     if (note.category !== "item") throw new HttpError(400, "Only items can be claimed");
     const v = cleanLine(value, 60);

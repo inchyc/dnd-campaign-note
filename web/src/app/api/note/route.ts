@@ -7,6 +7,7 @@ import {
   displayText,
   invalidateIndex,
   resolveLinks,
+  setFrontmatterKey,
   toMeta,
   visibleNotes,
 } from "@/lib/vault";
@@ -70,10 +71,59 @@ export const PUT = handle(async (req: Request) => {
   return Response.json({ success: true, mtime: await ctx.storage.mtime(note.path) });
 });
 
-/** Append a player note to a shared world note. */
+/** Create a new note or append a player note to a shared world note. */
 export const POST = handle(async (req: Request) => {
   const ctx = await requireCtx();
-  const { path, text } = await req.json();
+  const body = await req.json();
+
+  // Mode 1: Create a brand new note
+  if (body.create) {
+    const { category, title, content, priority, location, status, secret, visibleToParty, sub } = body;
+    const cleanTitle = String(title || "").replace(/[/\\?%*:|"<>]/g, "").trim();
+    if (!cleanTitle) throw new HttpError(400, "Title is required");
+
+    let folder = "Notes/Lore";
+    if (category === "quest") folder = "Notes/Investigations";
+    else if (category === "npc") folder = "Notes/NPCs";
+    else if (category === "location") folder = "Notes/Locations";
+    else if (category === "lore") folder = sub ? `Notes/Lore/${sub}` : "Notes/Lore";
+    else if (category === "item") folder = "Notes/Inventory & Gear";
+    else if (category === "party") folder = "Notes/PC Notes";
+
+    const targetPath = `${folder}/${cleanTitle}.md`;
+    if (await ctx.storage.exists(targetPath)) {
+      throw new HttpError(409, "A note with this title already exists");
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const yamlLines = [
+      "---",
+      `type: ${category === "quest" ? "Investigation" : category === "npc" ? "NPC" : category === "location" ? "Location" : "Codex"}`,
+      `category: ${category}`,
+      ...(priority ? [`priority: ${priority}`] : []),
+      ...(status ? [`status: ${status}`] : []),
+      ...(location ? [`location: "[[${location}]]"`] : []),
+      `created: ${today}`,
+      `visible_to_party: ${visibleToParty ?? true}`,
+      `secret: ${secret ?? false}`,
+      `owner: "${ctx.user.character}"`,
+      `player: "${ctx.user.name}"`,
+      "---",
+      "",
+      `# ${cleanTitle}`,
+      "",
+      String(content || "").trim() || `> [!abstract] Overview of ${cleanTitle}\n`,
+      "",
+    ];
+
+    const markdown = yamlLines.join("\n");
+    await ctx.storage.write(targetPath, markdown);
+    invalidateIndex(ctx.campaign.id);
+    return Response.json({ success: true, path: targetPath });
+  }
+
+  // Mode 2: Append player note to an existing shared world note
+  const { path, text } = body;
   const { note } = await getVisibleNote(ctx, path);
   if (!["npc", "location", "lore", "quest", "item"].includes(note.category)) {
     throw new HttpError(400, "Player notes can only be added to shared world notes");
@@ -90,4 +140,14 @@ export const POST = handle(async (req: Request) => {
   });
 
   return Response.json({ success: true });
+});
+
+export const DELETE = handle(async (req: Request) => {
+  const ctx = await requireCtx();
+  const path = new URL(req.url).searchParams.get("path");
+  const { note } = await getVisibleNote(ctx, path);
+  if (!canEdit(ctx, note)) throw new HttpError(403, "You can't archive or delete this note");
+
+  await mutateNote(ctx, note.path, (t) => setFrontmatterKey(t, "status", "archived"));
+  return Response.json({ success: true, archived: true });
 });

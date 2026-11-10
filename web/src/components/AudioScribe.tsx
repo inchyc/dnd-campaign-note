@@ -14,7 +14,17 @@ import {
   Info,
   Calendar,
   Volume2,
+  Download,
+  Copy,
+  Check,
+  Send,
 } from "lucide-react";
+import {
+  saveAudioChunk,
+  getSessionAudioChunks,
+  getAudioChunk,
+  blobToBase64,
+} from "@/lib/audioDb";
 
 interface AudioChunk {
   index: number;
@@ -33,6 +43,7 @@ const CHUNK_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
   const [chunks, setChunks] = useState<AudioChunk[]>([]);
   const [loading, setLoading] = useState(false);
+  const [localBlobs, setLocalBlobs] = useState<Record<number, { blob: Blob; url: string }>>({});
   const [isRecording, setIsRecording] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [chunkSeconds, setChunkSeconds] = useState(0);
@@ -54,14 +65,45 @@ export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
     if (!sessionDate) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/audio?session=${sessionDate}`);
-      const data = await res.json();
-      if (data.success) {
-        setChunks(data.chunks || []);
-        // Next chunk index is after the highest recorded
-        const nextIndex = data.chunks.length > 0 ? Math.max(...data.chunks.map((c: AudioChunk) => c.index)) + 1 : 0;
-        setCurrentChunkIndex(nextIndex);
+      // 1. Load local chunks from IndexedDB
+      const stored = await getSessionAudioChunks(sessionDate).catch(() => []);
+      const localMap: Record<number, { blob: Blob; url: string }> = {};
+      for (const item of stored) {
+        localMap[item.index] = {
+          blob: item.blob,
+          url: URL.createObjectURL(item.blob),
+        };
       }
+      setLocalBlobs(localMap);
+
+      // 2. Fetch server chunks
+      let serverChunks: AudioChunk[] = [];
+      try {
+        const res = await fetch(`/api/audio?session=${sessionDate}`);
+        const data = await res.json();
+        if (data.success && data.chunks) {
+          serverChunks = data.chunks;
+        }
+      } catch {
+        /* ignore */
+      }
+
+      // 3. Merge server chunks with local indexedDB chunks
+      const combined = [...serverChunks];
+      for (const item of stored) {
+        if (!combined.some((c) => c.index === item.index)) {
+          combined.push({
+            index: item.index,
+            file: `chunk-${String(item.index).padStart(4, "0")}.webm`,
+            transcribed: false,
+          });
+        }
+      }
+      combined.sort((a, b) => a.index - b.index);
+      setChunks(combined);
+
+      const nextIndex = combined.length > 0 ? Math.max(...combined.map((c: AudioChunk) => c.index)) + 1 : 0;
+      setCurrentChunkIndex(nextIndex);
     } catch (e) {
       console.error("Failed to load chunks", e);
     } finally {
@@ -155,6 +197,11 @@ export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
       recorder.onstop = async () => {
         if (recordedBlobsRef.current.length > 0) {
           const blob = new Blob(recordedBlobsRef.current, { type: mimeType });
+          try {
+            await saveAudioChunk(sessionDate, chunkIdx, blob);
+          } catch (e) {
+            console.warn("Could not save to IndexedDB:", e);
+          }
           await uploadChunkBlob(blob, chunkIdx);
           recordedBlobsRef.current = [];
         }
@@ -208,21 +255,50 @@ export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
   const handleTranscribeChunk = async (index: number) => {
     setTranscribingIndex(index);
     try {
+      const local = localBlobs[index] || (await getAudioChunk(sessionDate, index));
+      let payload: any = { session: sessionDate, index };
+      if (local?.blob) {
+        const b64 = await blobToBase64(local.blob);
+        payload.audioBase64 = b64;
+        payload.mimeType = local.blob.type || "audio/webm";
+      }
+
       const res = await fetch("/api/audio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session: sessionDate, index }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
         alert(data.error || "Transcription failed");
         return;
       }
+      setChunks((prev) =>
+        prev.map((c) => (c.index === index ? { ...c, transcribed: true, text: data.text } : c))
+      );
       await fetchChunks();
     } catch (e: any) {
       alert("Transcription failed: " + e.message);
     } finally {
       setTranscribingIndex(null);
+    }
+  };
+
+  const handleSendToScratchpad = async (text: string) => {
+    try {
+      const res = await fetch("/api/scratch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: `🎙️ [Audio Transcript]:\n${text}`,
+          shared: true,
+        }),
+      });
+      if (res.ok) {
+        alert("Transcript added directly to the Live Scratchpad & Table Feed!");
+      }
+    } catch (e) {
+      alert("Failed to add to scratchpad: " + e);
     }
   };
 
@@ -443,9 +519,55 @@ export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
                   </div>
                 </div>
 
+                {/* Local audio playback & download */}
+                {localBlobs[chunk.index]?.url && (
+                  <div className="flex items-center gap-2 pt-2 border-t border-fantasy-700/40">
+                    <audio
+                      controls
+                      src={localBlobs[chunk.index].url}
+                      className="w-full h-8 rounded bg-fantasy-900 border border-fantasy-700"
+                    />
+                    <a
+                      href={localBlobs[chunk.index].url}
+                      download={`session-${sessionDate}-chunk-${chunk.index + 1}.webm`}
+                      className="p-2 rounded bg-fantasy-800 text-slate-300 hover:text-white border border-fantasy-700 transition flex items-center gap-1 text-xs"
+                      title="Download audio chunk"
+                    >
+                      <Download className="w-4 h-4 text-amber-400" />
+                    </a>
+                  </div>
+                )}
+
+                {/* Gemini Transcript & Actions */}
                 {chunk.text && (
-                  <div className="p-3 rounded-lg bg-fantasy-900 border border-fantasy-700/60 text-xs text-slate-300 max-h-48 overflow-y-auto whitespace-pre-wrap font-sans leading-relaxed">
-                    {chunk.text}
+                  <div className="space-y-2 pt-2 border-t border-fantasy-700/50">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-amber-400 flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5" /> Lore-Aware Transcript:
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (navigator.clipboard) navigator.clipboard.writeText(chunk.text || "");
+                            alert("Transcript copied to clipboard!");
+                          }}
+                          className="px-2 py-1 text-[11px] rounded bg-fantasy-800 text-slate-300 hover:text-white border border-fantasy-700 flex items-center gap-1 transition"
+                        >
+                          <Copy className="w-3 h-3 text-slate-400" /> Copy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSendToScratchpad(chunk.text || "")}
+                          className="px-2 py-1 text-[11px] rounded bg-amber-600 hover:bg-amber-500 text-slate-950 font-semibold flex items-center gap-1 transition"
+                        >
+                          <Send className="w-3 h-3" /> Add to Scratchpad
+                        </button>
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-fantasy-900 border border-fantasy-700/60 text-xs text-slate-300 max-h-48 overflow-y-auto whitespace-pre-wrap font-sans leading-relaxed">
+                      {chunk.text}
+                    </div>
                   </div>
                 )}
               </div>

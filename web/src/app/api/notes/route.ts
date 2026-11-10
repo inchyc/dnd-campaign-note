@@ -8,7 +8,12 @@ export const GET = handle(async (req: Request) => {
   const url = new URL(req.url);
   const cat = url.searchParams.get("category") as Category | null;
   const forceFresh = url.searchParams.get("refresh") === "1" || url.searchParams.get("fresh") === "1";
-  const notes = (await visibleNotes(ctx, forceFresh)).filter((n) => !cat || n.category === cat);
+  const includeArchived = url.searchParams.get("archived") === "1";
+  const notes = (await visibleNotes(ctx, forceFresh, includeArchived)).filter((n) => {
+    if (cat && n.category !== cat) return false;
+    if (includeArchived) return n.status === "archived";
+    return n.status !== "archived";
+  });
   return Response.json({ success: true, notes: notes.map(toMeta) });
 });
 

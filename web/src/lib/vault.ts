@@ -19,6 +19,9 @@ export interface NoteMeta {
   owner?: string; // for items: who claimed it (empty / "party" = unclaimed)
   visibleToParty: boolean;
   playerField?: string; // character-note owner (frontmatter `player:`)
+  ownerType?: "dm" | "shared" | "private";
+  ownerLabel?: string;
+  archiveVotes?: string[];
   mtime: number;
 }
 
@@ -214,8 +217,40 @@ function hasPlayerTwin(n: NoteMeta, all: NoteMeta[]): boolean {
   return all.some((o) => o.path === twin);
 }
 
-export function canView(ctx: Ctx, n: NoteMeta, all: NoteMeta[]): boolean {
-  if (ctx.isScribe) return true;
+export function getOwnerInfo(n: {
+  secret?: boolean;
+  revealed?: boolean;
+  category?: string;
+  visibleToParty?: boolean;
+  title?: string;
+  playerField?: string;
+  owner?: string;
+  frontmatter?: Record<string, any>;
+}): {
+  type: "dm" | "shared" | "private";
+  label: string;
+} {
+  if (n.secret && !n.revealed) {
+    return { type: "dm", label: "DM Secret" };
+  }
+  if (n.category === "party") {
+    if (n.visibleToParty) {
+      return { type: "shared", label: "Party Shared" };
+    }
+    const char = n.title || n.playerField || "Character";
+    return { type: "private", label: `Private to ${char}` };
+  }
+  const fm = n.frontmatter || {};
+  if (fm.private === true || fm.private === "true") {
+    return { type: "private", label: `Private (${n.owner || n.playerField || "Author"})` };
+  }
+  return { type: "shared", label: "Party Shared" };
+}
+
+export function canView(ctx: Ctx, n: NoteMeta, all: NoteMeta[], includeArchived = false): boolean {
+  if (n.status === "archived" && !includeArchived) return false;
+  const effectiveScribe = ctx.isScribe && !ctx.viewAsPlayer;
+  if (effectiveScribe) return true;
   if (n.category === "session") return false;
   if (n.secret && !n.revealed) return false;
   if (hasPlayerTwin(n, all)) return false;
@@ -225,17 +260,23 @@ export function canView(ctx: Ctx, n: NoteMeta, all: NoteMeta[]): boolean {
 
 export function canEdit(ctx: Ctx, n: NoteMeta): boolean {
   if (ctx.isScribe) return true;
-  return n.category === "party" && ownsCharacterNote(ctx.user, n);
+  return (n.category === "party" && ownsCharacterNote(ctx.user, n)) || n.owner === ctx.user.character || n.playerField === ctx.user.name;
 }
 
-export async function visibleNotes(ctx: Ctx, forceFresh = false): Promise<IndexedNote[]> {
+export async function visibleNotes(ctx: Ctx, forceFresh = false, includeArchived = false): Promise<IndexedNote[]> {
   const all = await loadIndex(ctx, forceFresh);
-  return all.filter((n) => canView(ctx, n, all));
+  return all.filter((n) => canView(ctx, n, all, includeArchived));
 }
 
 export function toMeta(n: IndexedNote): NoteMeta {
   const { raw, body, frontmatter, ...meta } = n;
-  return meta;
+  const ownerInfo = getOwnerInfo(n);
+  return {
+    ...meta,
+    ownerType: ownerInfo.type,
+    ownerLabel: ownerInfo.label,
+    archiveVotes: Array.isArray(frontmatter?.archive_votes) ? frontmatter.archive_votes : [],
+  };
 }
 
 // ---------- wikilinks ----------

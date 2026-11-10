@@ -61,15 +61,23 @@ export const PUT = handle(async (req: Request) => {
 /** Transcribe one chunk with Gemini and save the text next to it. */
 export const POST = handle(async (req: Request) => {
   const ctx = await requireCtx({ scribe: true });
-  const { session: s, index } = await req.json();
+  const { session: s, index, audioBase64, mimeType } = await req.json();
   const session = s && isValidSession(s) ? s : await currentSession(ctx);
-  if (!Number.isInteger(index)) throw new HttpError(400, "Bad chunk");
-  const dir = `.hub/audio/${session}`;
-  const file = (await ctx.storage.list(dir)).find((e) => e.name.startsWith(`chunk-${pad(index)}.`) && !e.name.endsWith(".txt"));
-  if (!file) throw new HttpError(404, "Chunk not found");
-  const ext = file.name.split(".").pop()!;
-  const data = await ctx.storage.readBinary(`${dir}/${file.name}`);
-  if (data.length > 14 * 1024 * 1024) throw new HttpError(413, "Chunk too large to transcribe in one go");
+
+  let rawBase64 = audioBase64;
+  let audioMime = mimeType || "audio/webm";
+
+  if (!rawBase64) {
+    if (!Number.isInteger(index)) throw new HttpError(400, "Bad chunk");
+    const dir = `.hub/audio/${session}`;
+    const file = (await ctx.storage.list(dir)).find((e) => e.name.startsWith(`chunk-${pad(index)}.`) && !e.name.endsWith(".txt"));
+    if (!file) throw new HttpError(404, "Chunk not found");
+    const ext = file.name.split(".").pop()!;
+    audioMime = EXTS[ext] || "audio/webm";
+    const data = await ctx.storage.readBinary(`${dir}/${file.name}`);
+    if (data.length > 14 * 1024 * 1024) throw new HttpError(413, "Chunk too large to transcribe in one go");
+    rawBase64 = data.toString("base64");
+  }
 
   const text = await gemini(
     [
@@ -79,10 +87,21 @@ export const POST = handle(async (req: Request) => {
           `Mark clearly out-of-character chatter with (OOC). Use these spellings for names and terms: ${GLOSSARY} ` +
           `Output plain transcript text only, with no preamble. If a section is inaudible write [inaudible].`,
       },
-      { inline_data: { mime_type: EXTS[ext], data: data.toString("base64") } },
+      { inline_data: { mime_type: audioMime, data: rawBase64 } },
     ],
     { timeoutMs: 280_000 }
   );
-  await ctx.storage.write(`${dir}/chunk-${pad(index)}.txt`, text.trim());
-  return Response.json({ success: true, characters: text.length });
+
+  const cleanText = text.trim();
+
+  if (Number.isInteger(index)) {
+    const dir = `.hub/audio/${session}`;
+    try {
+      await ctx.storage.write(`${dir}/chunk-${pad(index)}.txt`, cleanText);
+    } catch (e) {
+      console.warn("Could not save chunk txt to storage:", e);
+    }
+  }
+
+  return Response.json({ success: true, text: cleanText, characters: cleanText.length });
 });
