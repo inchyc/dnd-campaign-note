@@ -1,5 +1,14 @@
 # Release & Version Changelog
 
+## [v1.1.1] - 2026-11-11
+### Fixed & Improved
+- **Edge-to-Edge System Bar Layout**: Resolved status bar clock and gesture navigation bar clipping on modern tall Android devices (Pixel 11 Pro XL) by enforcing window edge-to-edge layout, setting dark theme colors (`#0e1117`), and dynamically padding system bar insets.
+- **Home Dashboard Data Loading Resilience**:
+  - Pre-seeded cached dashboard data on startup so quests and party members render with zero blank frames.
+  - Hardened quest parsing in `api/home` to handle emoji priorities (`🔴 High`, `🟡 Med`, `🔵 Low`) and case-insensitive directory names (`Notes/Investigations`).
+  - Added robust fallback matching for character notes in the Adventuring Roster.
+  - Upgraded CSS `.pt-safe` and `.pb-safe` utilities for mobile web and native views.
+
 ## [v1.1.0] - 2026-11-11
 ### Added
 - **Multi-Campaign Creation Wizard**: Anyone in the party can create a new campaign and vault, automatically initializing as the Campaign DM/Scribe with full authoring rights.

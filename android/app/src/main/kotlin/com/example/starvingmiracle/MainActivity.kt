@@ -33,6 +33,15 @@ class MainActivity : ComponentActivity() {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 101)
         }
 
+        // Configure edge-to-edge window with matching dark aesthetic
+        window.statusBarColor = Color.parseColor("#0e1117")
+        window.navigationBarColor = Color.parseColor("#0e1117")
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+        insetsController.isAppearanceLightStatusBars = false
+        insetsController.isAppearanceLightNavigationBars = false
+
         // Wrap WebView in a dark container that respects Android Window Insets (status bar & gesture bar)
         val rootLayout = FrameLayout(this).apply {
             setBackgroundColor(Color.parseColor("#0e1117"))
@@ -61,6 +70,7 @@ class MainActivity : ComponentActivity() {
             )
             insets
         }
+        ViewCompat.requestApplyInsets(rootLayout)
 
         webView.settings.apply {
             javaScriptEnabled = true

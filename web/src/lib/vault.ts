@@ -143,9 +143,13 @@ export async function loadIndex(ctx: Pick<Ctx, "campaign" | "storage">, forceFre
     const notes: IndexedNote[] = [];
     await Promise.all(
       files.map(async (file) => {
-        const parts = file.split("/"); // Notes / <Top> / ...
-        const top = TOP_FOLDERS[parts[1]];
-        if (!top || parts.length < 3) return;
+        const normalized = file.replace(/\\/g, "/").replace(/^\/+/, "");
+        const parts = normalized.split("/").filter(Boolean);
+        const notesIdx = parts.indexOf("Notes");
+        const folderName = notesIdx !== -1 && parts.length > notesIdx + 1 ? parts[notesIdx + 1] : parts[0];
+        const topEntry = Object.entries(TOP_FOLDERS).find(([k]) => k.toLowerCase() === folderName.toLowerCase());
+        const top = topEntry ? topEntry[1] : undefined;
+        if (!top) return;
         try {
           const raw = await ctx.storage.read(file);
           const parsed = matter(raw);
@@ -153,7 +157,7 @@ export async function loadIndex(ctx: Pick<Ctx, "campaign" | "storage">, forceFre
           const stem = parts[parts.length - 1].replace(/\.md$/i, "");
           const isSecretPath = parts.includes("Secrets") || stem.startsWith("Secret - ");
           const secret = isSecretPath || fm.secret === true || fm.dm_only === true;
-          const sub = top.sub || (parts.length > 3 ? parts[2] : undefined);
+          const sub = top.sub || (parts.length > (notesIdx !== -1 ? notesIdx + 3 : 2) ? parts[notesIdx !== -1 ? notesIdx + 2 : 1] : undefined);
           notes.push({
             path: file,
             title: cleanTitle(stem),

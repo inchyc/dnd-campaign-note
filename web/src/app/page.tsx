@@ -123,6 +123,9 @@ export default function CampaignHub() {
     if (typeof document !== "undefined") {
       setIsPlayerViewActive(document.cookie.includes("hub_view_as_player=1"));
     }
+    // Pre-seed cached home dashboard immediately for instant mobile display
+    const cached = getCachedData<HomeData>("home_dashboard");
+    if (cached?.data) setHomeData(cached.data);
     try {
       const res = await fetch("/api/me");
       const data = await res.json();
@@ -208,6 +211,9 @@ export default function CampaignHub() {
       if (data.success) {
         setHomeData(data);
         setCachedData("home_dashboard", data);
+      } else {
+        const cached = getCachedData<HomeData>("home_dashboard");
+        if (cached?.data) setHomeData(cached.data);
       }
     } catch (e) {
       console.warn("Loading cached home dashboard", e);
@@ -484,7 +490,7 @@ export default function CampaignHub() {
                         title="Download Android APK directly"
                       >
                         <span className="flex items-center gap-1.5">
-                          <Smartphone className="w-3.5 h-3.5 text-amber-400" /> Get Android App (v1.1.0)
+                          <Smartphone className="w-3.5 h-3.5 text-amber-400" /> Get Android App (v1.1.1)
                         </span>
                         <Download className="w-3.5 h-3.5 text-slate-400 group-hover/btn:text-amber-400" />
                       </a>

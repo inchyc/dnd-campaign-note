@@ -11,6 +11,12 @@ function questBucket(status?: string): "open" | "active" | "resolved" {
   return "open";
 }
 
+function cleanPriority(p?: string): string {
+  const s = (p || "").replace(/[^a-zA-Z]/g, "").toLowerCase();
+  if (s.startsWith("med")) return "medium";
+  return s;
+}
+
 export const GET = handle(async () => {
   const ctx = await requireCtx();
   const visible = await visibleNotes(ctx);
@@ -29,14 +35,20 @@ export const GET = handle(async () => {
   const weight: Record<string, number> = { high: 3, urgent: 3, medium: 2, normal: 2, low: 1 };
   const quests = visible
     .filter((n) => n.category === "quest" && questBucket(n.status) !== "resolved")
-    .sort((a, b) => (weight[(b.priority || "").toLowerCase()] || 0) - (weight[(a.priority || "").toLowerCase()] || 0))
+    .sort((a, b) => (weight[cleanPriority(b.priority)] || 0) - (weight[cleanPriority(a.priority)] || 0))
     .slice(0, 5)
     .map(toMeta);
 
   const roster = users
     .filter((u) => u.role === "player" || u.role === "scribe")
     .map((u) => {
-      const note = all.find((n) => ownsCharacterNote(u, n) || (u.characterNotes || []).includes(n.path));
+      const note = all.find((n) => {
+        if (ownsCharacterNote(u, n)) return true;
+        if ((u.characterNotes || []).some((cp) => cp.toLowerCase() === n.path.toLowerCase())) return true;
+        const normTitle = (n.title || "").toLowerCase();
+        const normChar = (u.character || "").toLowerCase();
+        return normTitle === normChar;
+      });
       return {
         id: u.id,
         name: u.name,
