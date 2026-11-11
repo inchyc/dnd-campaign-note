@@ -159,6 +159,28 @@ async function seed() {
 
   const records = [];
 
+  // Seed .hub/users.json if present
+  const usersPath = path.join(vaultRoot, ".hub", "users.json");
+  if (fs.existsSync(usersPath)) {
+    const rawUsers = fs.readFileSync(usersPath, "utf-8");
+    records.push({
+      campaign_id: campaignId,
+      path: ".hub/users.json",
+      title: "Campaign Users",
+      category: "party",
+      status: "active",
+      priority: "high",
+      visibility: "dm",
+      raw_content: rawUsers,
+      body: rawUsers,
+      frontmatter: {},
+      tasks: [],
+      links: [],
+      backlinks: [],
+      mtime: Date.now(),
+    });
+  }
+
   for (const relFile of relFiles) {
     const parts = relFile.split("/");
     const top = TOP_FOLDERS[parts[1]];

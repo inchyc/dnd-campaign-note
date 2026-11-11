@@ -414,7 +414,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
             href="https://github.com/inchyc/dnd-campaign-note/raw/main/release/D&D-Campaign-Notes.apk"
             className="hover:text-amber-400 transition flex items-center gap-1 font-medium"
           >
-            <span>📱 Download Android App (v1.2.7)</span>
+            <span>📱 Download Android App (v1.2.8)</span>
           </a>
           <span>•</span>
           <a

@@ -164,7 +164,8 @@ export async function loadIndex(ctx: Pick<Ctx, "campaign" | "storage">, forceFre
         .eq("campaign_id", ctx.campaign.id);
 
       if (!error && data && data.length > 0) {
-        const notes: IndexedNote[] = data.map((row) => ({
+        const mdRows = data.filter((row) => row.path.toLowerCase().endsWith(".md"));
+        const notes: IndexedNote[] = mdRows.map((row) => ({
           path: row.path,
           title: row.title,
           category: row.category as Category,
