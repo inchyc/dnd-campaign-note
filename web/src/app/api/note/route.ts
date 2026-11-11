@@ -1,3 +1,4 @@
+import matter from "gray-matter";
 import { HttpError, handle, requireCtx } from "@/lib/auth";
 import { getVisibleNote, mutateNote } from "@/lib/noteops";
 import {
@@ -28,27 +29,41 @@ export const GET = handle(async (req: Request) => {
   const map = buildLinkMap(visible);
   const editable = canEdit(ctx, note);
 
+  let raw = note.raw;
+  try {
+    raw = await ctx.storage.read(note.path);
+  } catch {
+    /* fallback to note.raw */
+  }
+
+  const parsed = matter(raw);
+  const fm = (parsed.data || {}) as Record<string, any>;
+
   const frontmatter: Record<string, string> = {};
-  for (const [k, v] of Object.entries(note.frontmatter)) {
+  for (const [k, v] of Object.entries(fm)) {
     if (HIDDEN_KEYS.has(k)) continue;
     if (!ctx.isScribe && !PLAYER_KEYS.has(k)) continue;
     if (v === null || v === undefined || v === "") continue;
     frontmatter[k] = Array.isArray(v) ? v.flat().join(", ") : String(v);
   }
 
-  const body = displayText(note.raw);
+  const body = displayText(parsed.content);
   return Response.json({
     success: true,
     note: {
-      meta: toMeta(note),
+      meta: {
+        ...toMeta(note),
+        status: fm.status ? String(fm.status) : note.status,
+        priority: fm.priority ? String(fm.priority) : note.priority,
+      },
       frontmatter,
       body,
       links: resolveLinks(body, map),
       backlinks: backlinksFor(note, visible, map),
       canEdit: editable,
       canPlayerNote: ["npc", "location", "lore"].includes(note.category),
-      mtime: note.mtime,
-      raw: editable ? note.raw : undefined,
+      mtime: await ctx.storage.mtime(note.path).catch(() => note.mtime),
+      raw: editable ? raw : undefined,
     },
   });
 });

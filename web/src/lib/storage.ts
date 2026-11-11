@@ -154,6 +154,14 @@ export class GitHubStorage implements Storage {
     if (this.memoryWrites.has(p)) {
       return this.memoryWrites.get(p)!;
     }
+    const tmpPath = path.join("/tmp", "dnd_vault", p);
+    try {
+      if (fs.existsSync(tmpPath)) {
+        return fs.readFileSync(tmpPath, "utf-8");
+      }
+    } catch {
+      /* ignore */
+    }
     const fp = this.fullPath(p);
     // 1. Try raw.githubusercontent.com CDN (zero 60 req/hr rate limits, fast global edge)
     try {
@@ -183,8 +191,16 @@ export class GitHubStorage implements Storage {
     this.memoryWrites.set(p, content);
     this.localMtimes.set(p, Date.now());
 
+    try {
+      const tmpPath = path.join("/tmp", "dnd_vault", p);
+      fs.mkdirSync(path.dirname(tmpPath), { recursive: true });
+      fs.writeFileSync(tmpPath, content, "utf-8");
+    } catch {
+      /* ignore */
+    }
+
     if (!this.token) {
-      console.warn(`GitHubStorage: GITHUB_TOKEN not configured; write for '${p}' stored in-memory.`);
+      console.warn(`GitHubStorage: GITHUB_TOKEN not configured; write for '${p}' stored in-memory and disk.`);
       return;
     }
 

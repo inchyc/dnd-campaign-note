@@ -1,6 +1,6 @@
 import { Ctx, HttpError } from "./auth";
 import { withLock } from "./storage";
-import { IndexedNote, canView, invalidateIndex, loadIndex } from "./vault";
+import { IndexedNote, canView, invalidateIndex, loadIndex, updateIndexedNote } from "./vault";
 
 /** Finds a note by exact path and checks the caller may see it. Never trusts the client path. */
 export async function getVisibleNote(ctx: Ctx, path: unknown): Promise<{ note: IndexedNote; all: IndexedNote[] }> {
@@ -12,14 +12,16 @@ export async function getVisibleNote(ctx: Ctx, path: unknown): Promise<{ note: I
   return { note, all };
 }
 
-/** Read-modify-write a note under a lock, then drop the cached index. */
+/** Read-modify-write a note under a lock, then update the cached index. */
 export async function mutateNote(ctx: Ctx, path: string, fn: (text: string) => string | Promise<string>) {
   await withLock(path, async () => {
     const text = await ctx.storage.read(path);
     const next = await fn(text);
-    if (next !== text) await ctx.storage.write(path, next);
+    if (next !== text) {
+      await ctx.storage.write(path, next);
+      updateIndexedNote(ctx.campaign.id, path, next);
+    }
   });
-  invalidateIndex(ctx.campaign.id);
 }
 
 export function cleanLine(s: unknown, max = 400): string {

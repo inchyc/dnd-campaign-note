@@ -124,6 +124,31 @@ export function invalidateIndex(campaignId: string) {
   cache.delete(campaignId);
 }
 
+export function updateIndexedNote(campaignId: string, filePath: string, newRaw: string) {
+  const parsed = matter(newRaw);
+  const fm = (parsed.data || {}) as Record<string, any>;
+
+  const updateEntry = (n: IndexedNote) => {
+    n.raw = newRaw;
+    n.body = parsed.content;
+    n.frontmatter = fm;
+    if (fm.status !== undefined) n.status = String(fm.status);
+    if (fm.priority !== undefined) n.priority = String(fm.priority);
+    n.summary = firstSummary(parsed.content);
+  };
+
+  const hit = cache.get(campaignId);
+  if (hit) {
+    const existing = hit.notes.find((n) => n.path === filePath);
+    if (existing) updateEntry(existing);
+  }
+
+  if (bundledManifest?.notes) {
+    const existing = (bundledManifest.notes as IndexedNote[]).find((n) => n.path === filePath);
+    if (existing) updateEntry(existing);
+  }
+}
+
 export async function loadIndex(ctx: Pick<Ctx, "campaign" | "storage">, forceFresh = false): Promise<IndexedNote[]> {
   const hit = cache.get(ctx.campaign.id);
   if (!forceFresh && hit && Date.now() - hit.at < TTL) return hit.notes;

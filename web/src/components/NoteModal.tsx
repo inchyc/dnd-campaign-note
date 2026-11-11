@@ -257,68 +257,130 @@ export function NoteModal({
 
   const currentPath = historyStack[historyIndex] || path;
 
-  // Handle task toggling
+  // Handle task toggling (Instant optimistic update + background persistence)
   const handleToggleTask = async (line: number, lineText: string, checked: boolean) => {
-    if (!currentPath) return;
-    const res = await fetch("/api/note/task", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: currentPath, line, text: lineText, checked }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      alert(data.error || "Failed to toggle task");
-      return;
+    if (!currentPath || !noteData) return;
+
+    // Optimistically toggle checkbox in local body state
+    const oldBody = noteData.body;
+    const bodyLines = oldBody.split(/\r?\n/);
+    if (line >= 0 && line < bodyLines.length && bodyLines[line].includes("[")) {
+      bodyLines[line] = bodyLines[line].replace(/\[( |x|X)\]/, checked ? "[x]" : "[ ]");
+    } else {
+      const matchText = lineText.replace(/^\s*[-*]\s+\[( |x|X)\]\s*/i, "").trim();
+      for (let i = 0; i < bodyLines.length; i++) {
+        if (bodyLines[i].includes(matchText)) {
+          bodyLines[i] = bodyLines[i].replace(/\[( |x|X)\]/, checked ? "[x]" : "[ ]");
+          break;
+        }
+      }
     }
-    await fetchNote(currentPath);
-    if (onNoteUpdated) onNoteUpdated();
+    const nextBody = bodyLines.join("\n");
+    const updatedNote = { ...noteData, body: nextBody };
+    setNoteData(updatedNote);
+    setCachedData(`note_${currentPath}`, updatedNote);
+
+    try {
+      const res = await fetch("/api/note/task", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: currentPath, line, text: lineText, checked }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setNoteData({ ...noteData, body: oldBody });
+        alert(data.error || "Failed to toggle task");
+        return;
+      }
+      if (onNoteUpdated) onNoteUpdated();
+    } catch {
+      setNoteData({ ...noteData, body: oldBody });
+      alert("Network error updating task");
+    }
   };
 
   // Handle adding task
   const handleAddTask = async (afterLine: number, text: string) => {
-    if (!currentPath) return;
-    const res = await fetch("/api/note/task", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: currentPath, afterLine, text }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      alert(data.error || "Failed to add task");
-      return;
+    if (!currentPath || !noteData) return;
+    const oldBody = noteData.body;
+    const bodyLines = oldBody.split(/\r?\n/);
+    const insertIdx = Math.min(Math.max(0, afterLine + 1), bodyLines.length);
+    bodyLines.splice(insertIdx, 0, `- [ ] ${text}`);
+    const nextBody = bodyLines.join("\n");
+    const updatedNote = { ...noteData, body: nextBody };
+    setNoteData(updatedNote);
+    setCachedData(`note_${currentPath}`, updatedNote);
+
+    try {
+      const res = await fetch("/api/note/task", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: currentPath, afterLine, text }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setNoteData({ ...noteData, body: oldBody });
+        alert(data.error || "Failed to add task");
+        return;
+      }
+      if (onNoteUpdated) onNoteUpdated();
+    } catch {
+      setNoteData({ ...noteData, body: oldBody });
+      alert("Network error adding task");
     }
-    await fetchNote(currentPath);
-    if (onNoteUpdated) onNoteUpdated();
   };
 
   // Add a follow-up task at bottom of note
   const handleAddBottomTask = async () => {
     if (!currentPath || !followupTask.trim() || !noteData) return;
+    const taskToAdd = followupTask.trim();
+    setFollowupTask("");
     setIsAddingFollowup(true);
+
+    const oldBody = noteData.body;
+    const nextBody = oldBody.trimEnd() + `\n- [ ] ${taskToAdd}\n`;
+    const updatedNote = { ...noteData, body: nextBody };
+    setNoteData(updatedNote);
+    setCachedData(`note_${currentPath}`, updatedNote);
+
     try {
       const lines = noteData.body.split(/\r?\n/);
       const afterLine = Math.max(0, lines.length - 1);
       const res = await fetch("/api/note/task", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: currentPath, afterLine, text: followupTask.trim() }),
+        body: JSON.stringify({ path: currentPath, afterLine, text: taskToAdd }),
       });
       const data = await res.json();
       if (!res.ok) {
+        setNoteData({ ...noteData, body: oldBody });
         alert(data.error || "Failed to add follow-up task");
         return;
       }
-      setFollowupTask("");
-      await fetchNote(currentPath);
       if (onNoteUpdated) onNoteUpdated();
+    } catch {
+      setNoteData({ ...noteData, body: oldBody });
+      alert("Network error adding task");
     } finally {
       setIsAddingFollowup(false);
     }
   };
 
-  // Handle quest status update (Open, Active, Resolved)
+  // Handle quest status update (Instant optimistic update + background persistence)
   const handleQuestStatusUpdate = async (nextStatus: string) => {
-    if (!currentPath) return;
+    if (!currentPath || !noteData) return;
+
+    // Optimistically update status badges immediately
+    const oldMeta = noteData.meta;
+    const oldFm = noteData.frontmatter;
+    const updatedNote = {
+      ...noteData,
+      meta: { ...oldMeta, status: nextStatus },
+      frontmatter: { ...oldFm, status: nextStatus },
+    };
+    setNoteData(updatedNote);
+    setCachedData(`note_${currentPath}`, updatedNote);
+
     try {
       const res = await fetch("/api/note/meta", {
         method: "PUT",
@@ -326,13 +388,14 @@ export function NoteModal({
         body: JSON.stringify({ path: currentPath, key: "status", value: nextStatus }),
       });
       if (res.ok) {
-        await fetchNote(currentPath);
         if (onNoteUpdated) onNoteUpdated();
       } else {
+        setNoteData({ ...noteData, meta: oldMeta, frontmatter: oldFm });
         const data = await res.json();
         alert(data.error || "Failed to update quest status");
       }
     } catch {
+      setNoteData({ ...noteData, meta: oldMeta, frontmatter: oldFm });
       alert("Network error updating status");
     }
   };
