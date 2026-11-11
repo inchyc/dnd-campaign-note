@@ -1,5 +1,21 @@
 # Release & Version Changelog
 
+## [v1.2.4] - 2026-11-11
+### Added & Improved
+- **Live Background Watcher (`npm run vault:watch`)**:
+  - Continuous real-time two-way synchronization between your desktop Obsidian.md vault and the Supabase cloud database.
+  - Automatically debounces local file saves (600ms) and pushes only modified markdown files.
+  - Automatically pulls remote changes made by party members on web/mobile every 12 seconds directly into your Obsidian folder.
+  - Loopback prevention and automatic `.conflict.<timestamp>.md` backup protection on simultaneous edits.
+- **1-Click Windows Shortcut (`start-vault-watcher.bat`)**:
+  - Double-clickable batch launcher in the project root to run the live sync watcher in the background while playing.
+- **Storage Limits Clarification & Unlimited Note Support**:
+  - Removed any ambiguous note count limit references; clarified that campaign note storage is completely unlimited with no caps.
+- **Refined Sync & Vault UI**:
+  - Placed the Live Background Watcher front-and-center as the primary recommended setup.
+  - Added "No Limit" capacity badge to the Health card.
+  - Re-positioned the `.zip` export as a manual snapshot backup option.
+
 ## [v1.2.3] - 2026-11-11
 ### Added
 - **Dedicated Obsidian.md Sync & Vault Tab**:

@@ -32,6 +32,9 @@ const supabaseKey =
 
 if (!supabaseUrl || !supabaseKey) {
   console.error("❌ Error: Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY / SUPABASE_ANON_KEY.");
+  console.error("👉 To connect live sync to Supabase, add the following to your 'web/.env.local' file:");
+  console.error("   SUPABASE_URL=https://your-project.supabase.co");
+  console.error("   SUPABASE_SERVICE_ROLE_KEY=your-service-role-or-anon-key\n");
   process.exit(1);
 }
 
@@ -58,10 +61,31 @@ if (!vaultRoot) {
 const args = process.argv.slice(2);
 const isPullOnly = args.includes("--pull");
 const isPushOnly = args.includes("--push");
+const isWatchMode = args.includes("--watch") || args.includes("-w");
 
-console.log(`🔗 Supabase: ${supabaseUrl}`);
-console.log(`📂 Local Vault: ${vaultRoot}`);
-console.log(`Mode: ${isPullOnly ? "PULL ONLY" : isPushOnly ? "PUSH ONLY" : "TWO-WAY BIDIRECTIONAL SYNC"}`);
+let campaignId = "starving-vilgeismar";
+const campaignArg = args.find((a) => a.startsWith("--campaign="));
+if (campaignArg) {
+  campaignId = campaignArg.split("=")[1];
+}
+
+console.log(`=======================================================`);
+console.log(`🏰 D&D Campaign Hub <-> Obsidian.md Sync Engine`);
+console.log(`🔗 Supabase URL : ${supabaseUrl}`);
+console.log(`📂 Vault Path   : ${vaultRoot}`);
+console.log(`⚔️ Campaign ID  : ${campaignId}`);
+console.log(
+  `⚙️ Mode         : ${
+    isWatchMode
+      ? "LIVE BACKGROUND WATCHER (Real-Time Bidirectional)"
+      : isPullOnly
+      ? "PULL ONLY (Cloud -> Local)"
+      : isPushOnly
+      ? "PUSH ONLY (Local -> Cloud)"
+      : "TWO-WAY ONCE (Bidirectional Reconcile)"
+  }`
+);
+console.log(`=======================================================\n`);
 
 function walkDir(dir, baseDir = "") {
   let results = [];
@@ -132,10 +156,109 @@ function firstSummary(body) {
   return "";
 }
 
-async function sync() {
-  const campaignId = "starving-vilgeismar";
+function buildRecordFromLocal(relPath, fullPath) {
+  const stat = fs.statSync(fullPath);
+  const raw = fs.readFileSync(fullPath, "utf-8");
+  const parsed = matter(raw);
+  const fm = parsed.data || {};
+  const normalizedRel = relPath.replace(/\\/g, "/");
+  const parts = normalizedRel.split("/");
+  const top = TOP_FOLDERS[parts[1]] || { category: "general" };
+  const stem = parts[parts.length - 1].replace(/\.md$/i, "");
+  const isSecretPath = parts.includes("Secrets") || stem.startsWith("Secret - ");
+  const secret = isSecretPath || fm.secret === true || fm.dm_only === true;
 
-  // 1. Fetch remote notes from Supabase
+  let visibility = "party";
+  if (secret) {
+    visibility = "dm";
+  } else if (fm.owner || top.category === "party") {
+    visibility = fm.visible_to_party ? "party" : "pc";
+  }
+
+  return {
+    campaign_id: campaignId,
+    path: normalizedRel,
+    title: cleanTitle(stem),
+    category: top.category,
+    subcategory: top.sub || (parts.length > 3 ? parts[2] : null),
+    status: (fm.status || "active").toString().toLowerCase(),
+    priority: (fm.priority || "medium").toString().toLowerCase(),
+    lead: fm.lead || (fm.owner ? String(fm.owner) : null),
+    summary: firstSummary(parsed.content),
+    visibility,
+    character: fm.owner ? String(fm.owner) : (fm.player ? String(fm.player) : null),
+    tags: Array.isArray(fm.tags) ? fm.tags.map(String) : [],
+    aliases: Array.isArray(fm.aliases) ? fm.aliases.map(String) : [],
+    raw_content: raw,
+    body: parsed.content,
+    frontmatter: fm,
+    tasks: extractTasks(parsed.content),
+    mtime: Math.floor(stat.mtimeMs),
+  };
+}
+
+// In-memory set of paths being written by sync engine to prevent loopback
+const writingPaths = new Set();
+
+async function pushSingleFile(relPath) {
+  const normalizedRel = relPath.replace(/\\/g, "/");
+  const fullPath = path.join(vaultRoot, normalizedRel);
+  if (!fs.existsSync(fullPath)) return false;
+
+  try {
+    const record = buildRecordFromLocal(normalizedRel, fullPath);
+    const { error } = await supabase.from("notes").upsert(record, {
+      onConflict: "campaign_id,path",
+    });
+    if (error) {
+      console.warn(`[Sync Error] Push failed for ${normalizedRel}:`, error.message);
+      return false;
+    }
+    console.log(`[Obsidian -> Cloud] ⬆️ Pushed: ${normalizedRel}`);
+    return true;
+  } catch (err) {
+    console.warn(`[Sync Error] Error processing ${normalizedRel}:`, err.message);
+    return false;
+  }
+}
+
+async function pullSingleFile(remote) {
+  const relPath = remote.path.replace(/\\/g, "/");
+  const fullPath = path.join(vaultRoot, relPath);
+
+  // Mark as writing to prevent echo
+  writingPaths.add(relPath);
+
+  try {
+    // Check if local file exists and was also modified within threshold (conflict detection)
+    if (fs.existsSync(fullPath)) {
+      const localStat = fs.statSync(fullPath);
+      const localMtime = Math.floor(localStat.mtimeMs);
+      // If local was edited after the remote mtime, save conflict backup
+      if (localMtime > remote.mtime + 2000) {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const conflictBackup = fullPath.replace(/\.md$/i, `.conflict.${timestamp}.md`);
+        fs.copyFileSync(fullPath, conflictBackup);
+        console.warn(`[Conflict Alert] ⚠️ Local file was modified independently! Backup saved to: ${path.basename(conflictBackup)}`);
+      }
+    }
+
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, remote.raw_content, "utf-8");
+
+    // Set file modified time to match cloud mtime
+    const s = remote.mtime / 1000;
+    fs.utimesSync(fullPath, s, s);
+
+    console.log(`[Cloud -> Obsidian] ⬇️ Pulled: ${relPath}`);
+  } catch (err) {
+    console.warn(`[Sync Error] Pull failed for ${relPath}:`, err.message);
+  } finally {
+    setTimeout(() => writingPaths.delete(relPath), 1200);
+  }
+}
+
+async function syncOnce() {
   const { data: remoteNotes, error } = await supabase
     .from("notes")
     .select("*")
@@ -143,24 +266,24 @@ async function sync() {
 
   if (error) {
     console.error("❌ Failed to query remote notes from Supabase:", error.message);
-    process.exit(1);
+    return { pulled: 0, pushed: 0, upToDate: 0 };
   }
 
   const remoteMap = new Map();
   for (const n of remoteNotes || []) {
-    remoteMap.set(n.path, n);
+    remoteMap.set(n.path.replace(/\\/g, "/"), n);
   }
 
-  // 2. Scan local vault files
   const notesDir = path.join(vaultRoot, "Notes");
   const localFiles = walkDir(notesDir, "Notes");
   const localMap = new Map();
 
   for (const rel of localFiles) {
-    const fullPath = path.join(vaultRoot, rel);
+    const norm = rel.replace(/\\/g, "/");
+    const fullPath = path.join(vaultRoot, norm);
     const stat = fs.statSync(fullPath);
-    localMap.set(rel, {
-      path: rel,
+    localMap.set(norm, {
+      path: norm,
       fullPath,
       mtime: Math.floor(stat.mtimeMs),
     });
@@ -174,16 +297,9 @@ async function sync() {
   if (!isPushOnly) {
     for (const [relPath, remote] of remoteMap.entries()) {
       const local = localMap.get(relPath);
-      const fullPath = path.join(vaultRoot, relPath);
-
-      if (!local || remote.mtime > local.mtime) {
-        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-        fs.writeFileSync(fullPath, remote.raw_content, "utf-8");
-        // Update local file mtime to match remote
-        const s = remote.mtime / 1000;
-        fs.utimesSync(fullPath, s, s);
+      if (!local || remote.mtime > local.mtime + 500) {
+        await pullSingleFile(remote);
         pulled++;
-        console.log(`⬇️ PULL: ${relPath}`);
       }
     }
   }
@@ -192,68 +308,104 @@ async function sync() {
   if (!isPullOnly) {
     for (const [relPath, local] of localMap.entries()) {
       const remote = remoteMap.get(relPath);
-
-      if (!remote || local.mtime > remote.mtime) {
-        const raw = fs.readFileSync(local.fullPath, "utf-8");
-        const parsed = matter(raw);
-        const fm = parsed.data || {};
-        const parts = relPath.split("/");
-        const top = TOP_FOLDERS[parts[1]] || { category: "general" };
-        const stem = parts[parts.length - 1].replace(/\.md$/i, "");
-        const isSecretPath = parts.includes("Secrets") || stem.startsWith("Secret - ");
-        const secret = isSecretPath || fm.secret === true || fm.dm_only === true;
-
-        let visibility = "party";
-        if (secret) {
-          visibility = "dm";
-        } else if (fm.owner || top.category === "party") {
-          visibility = fm.visible_to_party ? "party" : "pc";
-        }
-
-        const record = {
-          campaign_id: campaignId,
-          path: relPath,
-          title: cleanTitle(stem),
-          category: top.category,
-          subcategory: top.sub || (parts.length > 3 ? parts[2] : null),
-          status: (fm.status || "active").toString().toLowerCase(),
-          priority: (fm.priority || "medium").toString().toLowerCase(),
-          lead: fm.lead || (fm.owner ? String(fm.owner) : null),
-          summary: firstSummary(parsed.content),
-          visibility,
-          character: fm.owner ? String(fm.owner) : (fm.player ? String(fm.player) : null),
-          tags: Array.isArray(fm.tags) ? fm.tags.map(String) : [],
-          aliases: Array.isArray(fm.aliases) ? fm.aliases.map(String) : [],
-          raw_content: raw,
-          body: parsed.content,
-          frontmatter: fm,
-          tasks: extractTasks(parsed.content),
-          mtime: local.mtime,
-        };
-
-        const { error: pushErr } = await supabase.from("notes").upsert(record, {
-          onConflict: "campaign_id,path",
-        });
-
-        if (pushErr) {
-          console.warn(`❌ Push failed for ${relPath}:`, pushErr.message);
-        } else {
-          pushed++;
-          console.log(`⬆️ PUSH: ${relPath}`);
-        }
+      if (!remote || local.mtime > remote.mtime + 500) {
+        const ok = await pushSingleFile(relPath);
+        if (ok) pushed++;
       } else {
         upToDate++;
       }
     }
   }
 
-  console.log(`\n✨ Sync Complete!`);
-  console.log(`   ⬇️ Pulled from Supabase to Obsidian: ${pulled}`);
-  console.log(`   ⬆️ Pushed from Obsidian to Supabase: ${pushed}`);
-  console.log(`   ✅ In Sync: ${upToDate}`);
+  return { pulled, pushed, upToDate };
 }
 
-sync().catch((err) => {
+// Watcher state
+const pendingChanges = new Map();
+
+function startWatcher() {
+  const notesDir = path.join(vaultRoot, "Notes");
+  console.log(`👀 Watching directory for live edits: ${notesDir}`);
+  console.log(`✨ Live two-way synchronization active. Press Ctrl+C to stop.\n`);
+
+  let lastCloudPollTime = Date.now();
+
+  // 1. Local File System Watcher
+  try {
+    fs.watch(notesDir, { recursive: true }, (eventType, filename) => {
+      if (!filename || !filename.toLowerCase().endsWith(".md")) return;
+      if (filename.includes(".conflict.")) return;
+
+      const normRel = path.join("Notes", filename).replace(/\\/g, "/");
+
+      // Skip if this event was caused by the sync engine writing to disk
+      if (writingPaths.has(normRel)) return;
+
+      // Debounce saving (600ms) to allow editor writes to complete
+      if (pendingChanges.has(normRel)) {
+        clearTimeout(pendingChanges.get(normRel));
+      }
+
+      const timer = setTimeout(async () => {
+        pendingChanges.delete(normRel);
+        const fullPath = path.join(vaultRoot, normRel);
+        if (fs.existsSync(fullPath)) {
+          await pushSingleFile(normRel);
+        }
+      }, 600);
+
+      pendingChanges.set(normRel, timer);
+    });
+  } catch (watchErr) {
+    console.warn(`[Watcher Notice] Recursive watch failed: ${watchErr.message}. Falling back to active polling.`);
+  }
+
+  // 2. Cloud Poll Loop (every 12 seconds)
+  setInterval(async () => {
+    try {
+      const { data: cloudUpdates, error } = await supabase
+        .from("notes")
+        .select("*")
+        .eq("campaign_id", campaignId)
+        .gt("mtime", lastCloudPollTime - 2000);
+
+      if (!error && cloudUpdates && cloudUpdates.length > 0) {
+        for (const remote of cloudUpdates) {
+          const normRel = remote.path.replace(/\\/g, "/");
+          if (writingPaths.has(normRel)) continue;
+
+          const fullPath = path.join(vaultRoot, normRel);
+          if (!fs.existsSync(fullPath)) {
+            await pullSingleFile(remote);
+          } else {
+            const localStat = fs.statSync(fullPath);
+            const localMtime = Math.floor(localStat.mtimeMs);
+            if (remote.mtime > localMtime + 500) {
+              await pullSingleFile(remote);
+            }
+          }
+        }
+      }
+      lastCloudPollTime = Date.now();
+    } catch (pollErr) {
+      // transient network interruption; will retry on next tick
+    }
+  }, 12000);
+}
+
+async function main() {
+  const result = await syncOnce();
+  console.log(`\nInitial Reconciliation Done:`);
+  console.log(`   ⬇️ Pulled from Cloud: ${result.pulled}`);
+  console.log(`   ⬆️ Pushed to Cloud  : ${result.pushed}`);
+  console.log(`   ✅ Synced Notes     : ${result.upToDate}\n`);
+
+  if (isWatchMode) {
+    startWatcher();
+  }
+}
+
+main().catch((err) => {
   console.error("❌ Sync error:", err);
   process.exit(1);
 });

@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "npm --prefix web run dev",
     "build": "npm --prefix web run build",
-    "start": "npm --prefix web run start"
+    "start": "npm --prefix web run start",
+    "vault:sync": "npm --prefix web run vault:sync",
+    "vault:watch": "npm --prefix web run vault:watch"
   }
 }
