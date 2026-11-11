@@ -1,5 +1,36 @@
 # Release & Version Changelog
 
+## [v1.2.3] - 2026-11-11
+### Added
+- **Dedicated Obsidian.md Sync & Vault Tab**:
+  - Live Storage & Vault Health Overview card with real-time status, active campaign, note counts, and mtime freshness.
+  - 1-Click Zero-Code **"Download Vault (.zip)"** export invoking `/api/vault/export` to generate an instant, complete archive with folder structure, YAML frontmatter, wikilinks, and Obsidian setup guide.
+  - Interactive **Command-Line Sync Guides** (`npm run vault:sync`) with 1-click clipboard copy for bidirectional sync, pull-only, push-only, and campaign targeting.
+  - Deep-dive cards explaining Obsidian YAML frontmatter compatibility, `[[wikilinks]]`, interactive task checkboxes `- [ ]`, and category folder structure.
+  - First-class desktop header tab (`Sync & Vault`) and mobile bottom navigation tab (`Sync`).
+
+## [v1.2.2] - 2026-11-11
+### Fixed
+- **Persistent Note & Quest Mutations**:
+  - Fixed status update permission check in `/api/note/meta` so non-DM players can update status on all party-shared notes.
+  - Implemented persistent client-side mutation journal (`web/src/lib/mutationJournal.ts`) keeping checkbox ticks and status updates persisted across serverless reboots.
+
+## [v1.2.1] - 2026-11-11
+### Fixed & Improved
+- **Category-Tailored Statuses**:
+  - NPCs & PCs: `Alive`, `Deceased`, `Missing`.
+  - Places & Locations: `Accessible`, `Dangerous`, `Cleared`.
+  - Items & Loot: `Carried`, `Equipped`, `Stored`.
+  - Factions & Organizations: `Allied`, `Hostile`, `Neutral`.
+  - Quests & Leads: `Open`, `Active`, `Resolved`.
+- Added 1-click header action buttons and Codex badge displays for all tailored statuses.
+
+## [v1.2.0] - 2026-11-11
+### Added
+- **Cloud Database Backend (Supabase PostgreSQL)**:
+  - Transitioned storage engine to Supabase PostgreSQL for high-speed, multi-user concurrency and zero Git race conditions.
+  - Automated database migration schema (`schema.sql`), seeding script (`seed-vault-to-supabase.mjs`), and two-way sync script (`sync-vault.mjs`).
+
 ## [v1.1.3] - 2026-11-11
 ### Fixed
 - **Instant Optimistic UI Updates**: Ticking quest task checkboxes and clicking "Mark Complete" or "Re-open" now updates immediately on screen and in local storage with zero delay, eliminating the screen reload and revert bug.

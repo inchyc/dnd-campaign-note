@@ -39,6 +39,7 @@ import { PartyLootView } from "@/components/PartyLootView";
 import { ScratchpadView } from "@/components/ScratchpadView";
 import { AudioScribe } from "@/components/AudioScribe";
 import { ScribeReviewsView } from "@/components/ScribeReviewsView";
+import { ObsidianSyncView } from "@/components/ObsidianSyncView";
 import { DiceInitiativeDrawer } from "@/components/DiceInitiativeDrawer";
 import { GlobalSearchModal } from "@/components/GlobalSearchModal";
 import { NetworkStatusBar } from "@/components/NetworkStatusBar";
@@ -93,7 +94,7 @@ export default function CampaignHub() {
   const [isCampaignMenuOpen, setIsCampaignMenuOpen] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
-    "home" | "npcs" | "locations" | "lore" | "quests" | "party" | "scratchpad" | "audio" | "reviews"
+    "home" | "npcs" | "locations" | "lore" | "quests" | "party" | "scratchpad" | "audio" | "reviews" | "sync"
   >("home");
 
   // Home dashboard data
@@ -657,6 +658,7 @@ export default function CampaignHub() {
                   { id: "reviews", label: "AI Reviews", icon: Bot },
                 ]
               : []),
+            { id: "sync", label: "Sync & Vault", icon: RefreshCw },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -1227,9 +1229,14 @@ export default function CampaignHub() {
             <ScribeReviewsView />
           </div>
         )}
+
+        {/* VIEW 9: OBSIDIAN SYNC & VAULT */}
+        {activeTab === "sync" && (
+          <ObsidianSyncView activeCampaign={currentCampaign} isScribe={isScribe} />
+        )}
       </main>
 
-      {/* Mobile Bottom Navigation Bar (5 Clean Ergonomic Tabs) */}
+      {/* Mobile Bottom Navigation Bar (Clean Ergonomic Tabs) */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-fantasy-900/95 backdrop-blur-md border-t border-fantasy-700/80 px-2 pt-2 pb-safe flex items-center justify-around text-[10px]">
         {[
           {
@@ -1270,6 +1277,13 @@ export default function CampaignHub() {
             icon: Edit3,
             active: ["scratchpad", "audio", "reviews"].includes(activeTab),
             onClick: () => setActiveTab("scratchpad"),
+          },
+          {
+            id: "sync",
+            label: "Sync",
+            icon: RefreshCw,
+            active: activeTab === "sync",
+            onClick: () => setActiveTab("sync"),
           },
         ].map((tab) => {
           const Icon = tab.icon;
