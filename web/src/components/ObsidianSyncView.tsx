@@ -52,6 +52,14 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
   const [downloading, setDownloading] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+  const [gitRemoteUrl, setGitRemoteUrl] = useState("https://github.com/inchyc/dnd-campaign-note.git");
+  const [originUrl, setOriginUrl] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setOriginUrl(window.location.origin);
+    }
+  }, []);
 
   const fetchStatus = async () => {
     setLoading(true);
@@ -241,8 +249,122 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
         </div>
       </div>
 
-      {/* 2. PRIMARY RECOMMENDED SETUP: Obsidian Git Plugin */}
-      <div className="p-6 sm:p-7 rounded-2xl bg-gradient-to-br from-fantasy-850 to-fantasy-900 border border-amber-600/50 shadow-xl space-y-6">
+      {/* 2. DIRECT HUB CLOUD SYNC (RECOMMENDED FOR PLAYERS - NO GIT REQUIRED) */}
+      <div className="p-6 sm:p-7 rounded-2xl bg-gradient-to-br from-fantasy-850 to-fantasy-900 border border-emerald-600/50 shadow-xl space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="p-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 shadow-md">
+              <Sparkles className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-bold font-serif text-emerald-100">
+                  Direct Hub Cloud Sync
+                </h2>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 border border-emerald-500/40 text-emerald-300">
+                  Zero Git Required
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-300 mt-0.5">
+                The fastest and easiest way to sync your notes. No GitHub accounts, no Git installation, and no PAT tokens required for your players.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleDownloadVault}
+            disabled={downloading}
+            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition shrink-0"
+          >
+            <Download className="w-4 h-4" />
+            <span>{downloading ? "Preparing Vault..." : "1-Click Download Vault (.zip)"}</span>
+          </button>
+        </div>
+
+        {/* Sync Endpoint Credentials Box */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="p-4 rounded-xl bg-fantasy-900 border border-fantasy-700 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Campaign Hub Sync Endpoint
+              </span>
+              <button
+                type="button"
+                onClick={() => copyToClipboard(`${originUrl || "https://dnd-campaign-notes-hub.vercel.app"}/api/vault/sync`, "api-endpoint")}
+                className="text-xs text-amber-300 hover:text-amber-200 flex items-center gap-1"
+              >
+                {copiedKey === "api-endpoint" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedKey === "api-endpoint" ? "Copied" : "Copy"}</span>
+              </button>
+            </div>
+            <code className="block p-2 rounded bg-black/60 font-mono text-xs text-emerald-300 select-all overflow-x-auto">
+              {`${originUrl || "https://dnd-campaign-notes-hub.vercel.app"}/api/vault/sync`}
+            </code>
+            <p className="text-[11px] text-slate-400">
+              Direct REST sync URL for Obsidian plugins, automated HTTP syncers, or background scripts.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-fantasy-900 border border-fantasy-700 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Campaign ID & Security
+              </span>
+              <button
+                type="button"
+                onClick={() => copyToClipboard(status?.campaign.id || activeCampaign?.id || "starving-vilgeismar", "camp-id")}
+                className="text-xs text-amber-300 hover:text-amber-200 flex items-center gap-1"
+              >
+                {copiedKey === "camp-id" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedKey === "camp-id" ? "Copied" : "Copy"}</span>
+              </button>
+            </div>
+            <code className="block p-2 rounded bg-black/60 font-mono text-xs text-amber-300 select-all">
+              {status?.campaign.id || activeCampaign?.id || "starving-vilgeismar"}
+            </code>
+            <p className="text-[11px] text-slate-400">
+              Authenticated automatically by your player PIN or browser session.
+            </p>
+          </div>
+        </div>
+
+        {/* 3 Quick Setup Steps */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="p-3.5 rounded-xl bg-fantasy-900/80 border border-fantasy-700/60 space-y-1.5">
+            <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
+              <span className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center text-xs font-bold">1</span>
+              <span>Download & Extract</span>
+            </div>
+            <p className="text-xs text-slate-300">
+              Click <strong>Download Vault (.zip)</strong> above and extract it into a folder on your computer.
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-fantasy-900/80 border border-fantasy-700/60 space-y-1.5">
+            <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
+              <span className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center text-xs font-bold">2</span>
+              <span>Open in Obsidian</span>
+            </div>
+            <p className="text-xs text-slate-300">
+              Launch Obsidian, choose <strong>Open folder as vault</strong>, and pick the extracted folder. All wikilinks and folders load immediately!
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-fantasy-900/80 border border-fantasy-700/60 space-y-1.5">
+            <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
+              <span className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center text-xs font-bold">3</span>
+              <span>Live Web Sync</span>
+            </div>
+            <p className="text-xs text-slate-300">
+              Edits made on your phone or browser in this app sync instantly to the cloud database with zero git commands.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. OPTIONAL ADVANCED SETUP: Obsidian Git Plugin (For Git Users) */}
+      <div className="p-6 sm:p-7 rounded-2xl bg-gradient-to-br from-fantasy-850 to-fantasy-900 border border-amber-600/40 shadow-xl space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             <div className="p-3 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 shadow-md">
@@ -251,14 +373,14 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-xl font-bold font-serif text-amber-100">
-                  Automatic Sync via Obsidian Git Plugin
+                  Obsidian Git Plugin (Git Alternative)
                 </h2>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 border border-emerald-500/40 text-emerald-300">
-                  Recommended Plugin
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 border border-amber-500/40 text-amber-300">
+                  Advanced / Git-Based
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-slate-300 mt-0.5">
-                The standard, official community plugin used by hundreds of thousands of Obsidian users. Syncs automatically in the background without any terminal commands or batch files.
+                For groups that host their markdown vault in a dedicated GitHub repository. If you are creating your own campaign, use your own repository URL so you don't sync with someone else's notes.
               </p>
             </div>
           </div>
@@ -270,27 +392,33 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
             <div className="flex items-center gap-2">
               <GitBranch className="w-4 h-4 text-amber-400" />
               <span className="text-xs font-bold uppercase tracking-wider text-amber-200">
-                Campaign Git Remote Repository
+                Custom Git Remote Repository URL
               </span>
             </div>
-            <a
-              href="https://github.com/inchyc/dnd-campaign-note"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1 transition"
-            >
-              <span>View on GitHub</span>
-              <ExternalLink className="w-3 h-3" />
-            </a>
+            {gitRemoteUrl.includes("github.com") && (
+              <a
+                href={gitRemoteUrl.replace(/\.git$/, "")}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1 transition"
+              >
+                <span>View on GitHub</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
-            <code className="flex-1 px-3 py-2 rounded-lg bg-black/60 border border-slate-800 font-mono text-xs text-amber-300 select-all overflow-x-auto">
-              https://github.com/inchyc/dnd-campaign-note.git
-            </code>
+            <input
+              type="text"
+              value={gitRemoteUrl}
+              onChange={(e) => setGitRemoteUrl(e.target.value)}
+              className="flex-1 px-3 py-2 rounded-lg bg-black/60 border border-slate-800 font-mono text-xs text-amber-300 focus:outline-none focus:border-amber-500"
+              placeholder="https://github.com/your-username/your-dnd-vault.git"
+            />
             <button
               type="button"
-              onClick={() => copyToClipboard("https://github.com/inchyc/dnd-campaign-note.git", "repo-url")}
+              onClick={() => copyToClipboard(gitRemoteUrl, "repo-url")}
               className="px-3 py-2 rounded-lg bg-fantasy-800 hover:bg-fantasy-700 border border-fantasy-700 text-xs font-semibold text-slate-200 hover:text-white flex items-center gap-1.5 transition shrink-0"
             >
               {copiedKey === "repo-url" ? (
@@ -307,7 +435,7 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
             </button>
           </div>
           <p className="text-[11px] text-slate-400">
-            Use this repository URL to link any Obsidian vault on any player's computer or laptop.
+            Paste your party's private or shared GitHub repository URL here to clone or configure with the Obsidian Git plugin.
           </p>
         </div>
 
@@ -328,10 +456,10 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
               On any computer, clone the repository or open your existing vault folder:
             </p>
             <div className="space-y-1.5 text-xs text-slate-300 bg-fantasy-800/80 p-2.5 rounded-lg border border-fantasy-700">
-              <p className="text-[11px] text-slate-400 font-semibold">Option A (New Setup):</p>
-              <code className="block font-mono text-[11px] text-amber-300 select-all">git clone https://github.com/inchyc/dnd-campaign-note.git</code>
+              <p className="text-[11px] text-slate-400 font-semibold">Option A (Clone Remote Repository):</p>
+              <code className="block font-mono text-[11px] text-amber-300 select-all">{`git clone ${gitRemoteUrl}`}</code>
               <p className="text-[11px] text-slate-400 font-semibold pt-1">Option B (Existing Vault Folder):</p>
-              <code className="block font-mono text-[11px] text-slate-300 select-all">git init && git remote add origin https://github.com/inchyc/dnd-campaign-note.git</code>
+              <code className="block font-mono text-[11px] text-slate-300 select-all">{`git init && git remote add origin ${gitRemoteUrl}`}</code>
             </div>
           </div>
 

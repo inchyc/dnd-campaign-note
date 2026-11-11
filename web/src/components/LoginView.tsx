@@ -17,6 +17,7 @@ import {
   Plus,
 } from "lucide-react";
 import { CreateCampaignModal } from "./CreateCampaignModal";
+import { JoinCampaignModal } from "./JoinCampaignModal";
 
 interface HubUserPublic {
   id: string;
@@ -66,6 +67,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
   const [usersLoading, setUsersLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isJoinOpen, setIsJoinOpen] = useState(false);
 
   // Load users for a given campaign
   const fetchUsersForCampaign = useCallback(async (campId: string) => {
@@ -298,6 +300,14 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
                 })}
               </div>
             )}
+
+            <button
+              type="button"
+              onClick={() => setIsJoinOpen(true)}
+              className="w-full p-3.5 rounded-xl border border-dashed border-emerald-500/50 hover:border-emerald-400 bg-emerald-950/20 hover:bg-emerald-950/40 text-emerald-300 font-semibold text-xs flex items-center justify-center gap-2 transition shadow mt-3"
+            >
+              <Plus className="w-4 h-4" /> + Join Campaign / Create Character
+            </button>
           </div>
         )}
 
@@ -386,13 +396,25 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
           }}
         />
 
+        <JoinCampaignModal
+          isOpen={isJoinOpen}
+          onClose={() => setIsJoinOpen(false)}
+          campaignId={activeCampaign.id}
+          campaignName={activeCampaign.name}
+          autoLogin={true}
+          onJoined={(newUser) => {
+            fetchUsersForCampaign(activeCampaign.id);
+            onLoginSuccess();
+          }}
+        />
+
         {/* Android App & Version Footer */}
         <div className="pt-2 text-center text-xs text-slate-500 flex items-center justify-center gap-3 border-t border-fantasy-700/50">
           <a
             href="https://github.com/inchyc/dnd-campaign-note/raw/main/release/D&D-Campaign-Notes.apk"
             className="hover:text-amber-400 transition flex items-center gap-1 font-medium"
           >
-            <span>📱 Download Android App (v1.1.3)</span>
+            <span>📱 Download Android App (v1.2.7)</span>
           </a>
           <span>•</span>
           <a

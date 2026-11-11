@@ -12,7 +12,9 @@ import {
   AlertTriangle,
   RefreshCw,
   UserCheck,
+  Plus,
 } from "lucide-react";
+import { JoinCampaignModal } from "./JoinCampaignModal";
 
 interface UserItem {
   id: string;
@@ -40,6 +42,7 @@ export function ManageRolesModal({
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isAddPlayerOpen, setIsAddPlayerOpen] = useState(false);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -239,10 +242,21 @@ export function ManageRolesModal({
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-fantasy-700/80 bg-fantasy-850/80 flex items-center justify-between">
-          <span className="text-xs text-slate-400">
-            {activeScribes.length} Active {activeScribes.length === 1 ? "Scribe" : "Scribes"}
-          </span>
+        <div className="p-4 border-t border-fantasy-700/80 bg-fantasy-850/80 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400">
+              {activeScribes.length} Active {activeScribes.length === 1 ? "Scribe" : "Scribes"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsAddPlayerOpen(true)}
+              className="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold flex items-center gap-1 transition"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Player Slot</span>
+            </button>
+          </div>
+
           <button
             type="button"
             onClick={onClose}
@@ -251,6 +265,17 @@ export function ManageRolesModal({
             Close
           </button>
         </div>
+
+        <JoinCampaignModal
+          isOpen={isAddPlayerOpen}
+          onClose={() => setIsAddPlayerOpen(false)}
+          campaignId={campaignId}
+          campaignName={`Campaign ${campaignId}`}
+          autoLogin={false}
+          onJoined={() => {
+            fetchUsers();
+          }}
+        />
       </div>
     </div>
   );

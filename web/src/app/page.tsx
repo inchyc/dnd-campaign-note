@@ -40,6 +40,7 @@ import { ScratchpadView } from "@/components/ScratchpadView";
 import { AudioScribe } from "@/components/AudioScribe";
 import { ScribeReviewsView } from "@/components/ScribeReviewsView";
 import { ObsidianSyncView } from "@/components/ObsidianSyncView";
+import { CharacterSheetView } from "@/components/CharacterSheetView";
 import { DiceInitiativeDrawer } from "@/components/DiceInitiativeDrawer";
 import { GlobalSearchModal } from "@/components/GlobalSearchModal";
 import { NetworkStatusBar } from "@/components/NetworkStatusBar";
@@ -95,7 +96,7 @@ export default function CampaignHub() {
   const [isCampaignMenuOpen, setIsCampaignMenuOpen] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
-    "home" | "npcs" | "locations" | "lore" | "quests" | "party" | "scratchpad" | "audio" | "reviews" | "sync"
+    "home" | "sheet" | "npcs" | "locations" | "lore" | "quests" | "party" | "scratchpad" | "audio" | "reviews" | "sync"
   >("home");
 
   // Home dashboard data
@@ -661,6 +662,7 @@ export default function CampaignHub() {
         <div className="max-w-7xl mx-auto pt-3 hidden md:flex items-center gap-1 overflow-x-auto text-xs font-medium">
           {[
             { id: "home", label: "Dashboard", icon: Sparkles },
+            { id: "sheet", label: "Character Sheet", icon: Shield },
             { id: "npcs", label: "NPCs", icon: Users },
             { id: "locations", label: "Locations", icon: MapPin },
             { id: "lore", label: "Lore", icon: BookOpen },
@@ -1247,6 +1249,15 @@ export default function CampaignHub() {
           </div>
         )}
 
+        {/* VIEW: 5E CHARACTER SHEET */}
+        {activeTab === "sheet" && (
+          <CharacterSheetView
+            currentUser={currentUser}
+            activeCampaign={currentCampaign}
+            isScribe={isScribe}
+          />
+        )}
+
         {/* VIEW 9: OBSIDIAN SYNC & VAULT */}
         {activeTab === "sync" && (
           <ObsidianSyncView activeCampaign={currentCampaign} isScribe={isScribe} />
@@ -1262,6 +1273,13 @@ export default function CampaignHub() {
             icon: Sparkles,
             active: activeTab === "home",
             onClick: () => setActiveTab("home"),
+          },
+          {
+            id: "sheet",
+            label: "Sheet",
+            icon: Shield,
+            active: activeTab === "sheet",
+            onClick: () => setActiveTab("sheet"),
           },
           {
             id: "quests",
