@@ -1,5 +1,20 @@
 # Release & Version Changelog
 
+## [v1.2.6] - 2026-11-11
+### Added & Improved
+- **Multi-Scribe Role Management**:
+  - Implemented `POST /api/campaigns/[id]/users/role` allowing Scribes to promote or demote players to/from Scribe.
+  - Multiple players can now hold Scribe status simultaneously for shared scribing duties.
+  - Added **"Party Roles"** modal in the header and interactive role badges in the Party Roster.
+  - Built-in safeguard prevents accidentally removing the final remaining Scribe.
+- **Future-Proof Obsidian Git Integration**:
+  - Added Git Remote Repository URL box (`https://github.com/inchyc/dnd-campaign-note.git`) with 1-click copy button and GitHub repository link.
+  - Added generic, device-agnostic instructions for linking any Obsidian vault folder on any PC.
+  - Added GitHub Personal Access Token (PAT) authentication instructions for Obsidian Git.
+  - Added `--vault="<path>"` parameter support to the CLI sync engine.
+- **Audio Scribe Readiness Checklist**:
+  - Added an in-app readiness banner in Audio Scribe verifying microphone permissions, HTTPS, Gemini 2.5 Flash transcription, and local IndexedDB chunk safeguards.
+
 ## [v1.2.5] - 2026-11-11
 ### Added & Improved
 - **Cleaned UI & Aesthetic Overhaul**:

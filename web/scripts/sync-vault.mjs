@@ -42,10 +42,22 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: { persistSession: false },
 });
 
+const args = process.argv.slice(2);
+const isPullOnly = args.includes("--pull");
+const isPushOnly = args.includes("--push");
+const isWatchMode = args.includes("--watch") || args.includes("-w");
+
+let vaultFromArg = null;
+const vaultArg = args.find((a) => a.startsWith("--vault="));
+if (vaultArg) {
+  vaultFromArg = vaultArg.split("=").slice(1).join("=").replace(/^["']|["']$/g, "");
+}
+
 // Identify local vault path
 const customPath = process.env.OBSIDIAN_VAULT_PATH;
 const defaultLiveObsidian = "C:\\Users\\icinc\\Documents\\Obsidian Vault\\Chris\\TTRPG\\D&D\\Starving Vilgeismar";
 const candidates = [
+  vaultFromArg,
   customPath,
   defaultLiveObsidian,
   path.resolve(process.cwd(), "../Starving Vilgeismar"),
@@ -55,13 +67,9 @@ const candidates = [
 let vaultRoot = candidates.find((p) => p && fs.existsSync(p));
 if (!vaultRoot) {
   console.error("❌ Could not locate local Obsidian vault directory.");
+  console.error("👉 Please pass your vault path using --vault=\"C:\\Path\\To\\Vault\" or set OBSIDIAN_VAULT_PATH in .env.local\n");
   process.exit(1);
 }
-
-const args = process.argv.slice(2);
-const isPullOnly = args.includes("--pull");
-const isPushOnly = args.includes("--push");
-const isWatchMode = args.includes("--watch") || args.includes("-w");
 
 let campaignId = "starving-vilgeismar";
 const campaignArg = args.find((a) => a.startsWith("--campaign="));

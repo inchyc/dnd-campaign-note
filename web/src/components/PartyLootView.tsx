@@ -46,6 +46,8 @@ interface PartyLootViewProps {
   claimedItems: ItemMeta[];
   inventoryPath?: string;
   currentUser: { id: string; name: string; character: string; role: "scribe" | "player" } | null;
+  isScribe?: boolean;
+  onOpenManageRoles?: () => void;
   onSelectNote: (path: string) => void;
   onClaimItem: (path: string, owner: string) => Promise<void>;
   onToggleCharacterVisibility: (path: string, currentVisible: boolean) => Promise<void>;
@@ -58,6 +60,8 @@ export function PartyLootView({
   claimedItems,
   inventoryPath,
   currentUser,
+  isScribe,
+  onOpenManageRoles,
   onSelectNote,
   onClaimItem,
   onToggleCharacterVisibility,
@@ -141,10 +145,20 @@ export function PartyLootView({
       {/* TAB 1: Adventuring Party */}
       {activeTab === "party" && (
         <div className="space-y-4">
-          <div className="p-3.5 rounded-lg bg-fantasy-900/60 border border-fantasy-700/60 text-xs text-slate-300 flex items-center justify-between">
+          <div className="p-3.5 rounded-lg bg-fantasy-900/60 border border-fantasy-700/60 text-xs text-slate-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <span>
               🔒 <strong>Privacy Rules:</strong> Each player's character note is private by default and visible only to them and the Scribe, unless they toggle it to <strong>Visible to Party</strong>.
             </span>
+            {isScribe && onOpenManageRoles && (
+              <button
+                type="button"
+                onClick={onOpenManageRoles}
+                className="px-3 py-1.5 rounded-lg bg-amber-600/25 hover:bg-amber-600/40 border border-amber-600/50 text-amber-200 text-xs font-semibold flex items-center gap-1.5 transition shrink-0"
+              >
+                <Users className="w-3.5 h-3.5 text-amber-400" />
+                <span>Manage Party Roles</span>
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

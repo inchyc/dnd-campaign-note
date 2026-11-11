@@ -355,6 +355,61 @@ export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
         </div>
       </div>
 
+      {/* Audio Recording Readiness Checklist */}
+      <div className="p-4 rounded-xl bg-gradient-to-br from-fantasy-850 to-fantasy-900 border border-emerald-500/40 text-xs text-slate-300 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 font-serif font-bold text-emerald-300 text-sm">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            Live Session Recording Readiness
+          </div>
+          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
+            Hardware & Cloud Ready
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1 text-[11px]">
+          <div className="p-2.5 rounded-lg bg-fantasy-900/90 border border-fantasy-700/60 space-y-1">
+            <span className="font-bold text-slate-200 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              1. Microphone Prompt
+            </span>
+            <p className="text-slate-400 leading-relaxed">
+              When you click Start Recording, tap <strong>"Allow"</strong> on the browser microphone permission popup.
+            </p>
+          </div>
+
+          <div className="p-2.5 rounded-lg bg-fantasy-900/90 border border-fantasy-700/60 space-y-1">
+            <span className="font-bold text-slate-200 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              2. IndexedDB Safeguard
+            </span>
+            <p className="text-slate-400 leading-relaxed">
+              Chunks save directly to your phone/laptop's local storage. Zero audio is lost if Wi-Fi drops.
+            </p>
+          </div>
+
+          <div className="p-2.5 rounded-lg bg-fantasy-900/90 border border-fantasy-700/60 space-y-1">
+            <span className="font-bold text-slate-200 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              3. Gemini 2.5 Flash
+            </span>
+            <p className="text-slate-400 leading-relaxed">
+              Transcribes audio with speaker identification (<code className="text-amber-300">DM</code>, <code className="text-amber-300">Player</code>) and campaign glossary.
+            </p>
+          </div>
+
+          <div className="p-2.5 rounded-lg bg-fantasy-900/90 border border-fantasy-700/60 space-y-1">
+            <span className="font-bold text-slate-200 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              4. Shared Scribes
+            </span>
+            <p className="text-slate-400 leading-relaxed">
+              Multiple players can be Scribes simultaneously to take turns recording and collating.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Instructions & Consent Banner */}
       <div className="p-4 rounded-xl bg-fantasy-900/80 border border-rose-600/30 text-xs text-slate-300 space-y-2.5">
         <div className="flex items-center gap-2 font-serif font-semibold text-rose-300 text-sm">

@@ -45,6 +45,7 @@ import { GlobalSearchModal } from "@/components/GlobalSearchModal";
 import { NetworkStatusBar } from "@/components/NetworkStatusBar";
 import { CreateNoteModal } from "@/components/CreateNoteModal";
 import { CreateCampaignModal } from "@/components/CreateCampaignModal";
+import { ManageRolesModal } from "@/components/ManageRolesModal";
 import { setCachedData, getCachedData } from "@/lib/cache";
 import { getStatusBadge } from "@/lib/statusConfig";
 import { applyJournalToNotes } from "@/lib/mutationJournal";
@@ -119,6 +120,7 @@ export default function CampaignHub() {
   const [isCreateNoteOpen, setIsCreateNoteOpen] = useState(false);
   const [createNoteCategory, setCreateNoteCategory] = useState("npc");
   const [isCreateCampaignOpen, setIsCreateCampaignOpen] = useState(false);
+  const [isManageRolesOpen, setIsManageRolesOpen] = useState(false);
   const [isPlayerViewActive, setIsPlayerViewActive] = useState(false);
 
   // Check login on mount
@@ -611,6 +613,19 @@ export default function CampaignHub() {
                 <span className="hidden sm:inline">
                   {isPlayerViewActive ? "Player View: ON" : "Player View"}
                 </span>
+              </button>
+            )}
+
+            {/* Manage Roles Button (Scribes Only) */}
+            {isScribe && (
+              <button
+                type="button"
+                onClick={() => setIsManageRolesOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-fantasy-800 hover:bg-fantasy-700 border border-fantasy-700 text-xs text-amber-200 font-semibold transition"
+                title="Manage Scribes and assign party duties"
+              >
+                <Users className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline">Party Roles</span>
               </button>
             )}
 
@@ -1120,6 +1135,8 @@ export default function CampaignHub() {
             claimedItems={partyData.claimed || []}
             inventoryPath={partyData.inventoryPath}
             currentUser={currentUser}
+            isScribe={isScribe}
+            onOpenManageRoles={() => setIsManageRolesOpen(true)}
             onSelectNote={(path) => setSelectedNotePath(path)}
             onClaimItem={handleClaimItem}
             onToggleCharacterVisibility={handleToggleCharacterVisibility}
@@ -1395,6 +1412,21 @@ export default function CampaignHub() {
         onCampaignCreated={async () => {
           setIsCreateCampaignOpen(false);
           await handleLogout();
+        }}
+      />
+
+      {/* Manage Party Roles Modal */}
+      <ManageRolesModal
+        isOpen={isManageRolesOpen}
+        onClose={() => setIsManageRolesOpen(false)}
+        campaignId={currentCampaign?.id || "starving-vilgeismar"}
+        currentUserId={currentUser.id}
+        onRolesUpdated={(updatedUsers) => {
+          const self = updatedUsers.find((u) => u.id === currentUser.id);
+          if (self && self.role !== currentUser.role) {
+            setCurrentUser({ ...currentUser, role: self.role });
+          }
+          fetchParty();
         }}
       />
 

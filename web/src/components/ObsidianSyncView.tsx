@@ -264,6 +264,53 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
           </div>
         </div>
 
+        {/* Git Remote Repository Box */}
+        <div className="p-4 rounded-xl bg-fantasy-900 border border-amber-600/40 space-y-2.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <GitBranch className="w-4 h-4 text-amber-400" />
+              <span className="text-xs font-bold uppercase tracking-wider text-amber-200">
+                Campaign Git Remote Repository
+              </span>
+            </div>
+            <a
+              href="https://github.com/inchyc/dnd-campaign-note"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1 transition"
+            >
+              <span>View on GitHub</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <code className="flex-1 px-3 py-2 rounded-lg bg-black/60 border border-slate-800 font-mono text-xs text-amber-300 select-all overflow-x-auto">
+              https://github.com/inchyc/dnd-campaign-note.git
+            </code>
+            <button
+              type="button"
+              onClick={() => copyToClipboard("https://github.com/inchyc/dnd-campaign-note.git", "repo-url")}
+              className="px-3 py-2 rounded-lg bg-fantasy-800 hover:bg-fantasy-700 border border-fantasy-700 text-xs font-semibold text-slate-200 hover:text-white flex items-center gap-1.5 transition shrink-0"
+            >
+              {copiedKey === "repo-url" ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-emerald-400">Copied!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copy URL</span>
+                </>
+              )}
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Use this repository URL to link any Obsidian vault on any player's computer or laptop.
+          </p>
+        </div>
+
         {/* 4-Step Visual Walkthrough */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Step 1 */}
@@ -273,15 +320,18 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
                 <span className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center text-xs font-bold text-amber-300">
                   1
                 </span>
-                <span>Enable Community Plugins</span>
+                <span>Open or Clone Vault on Any PC</span>
               </div>
-              <Settings className="w-4 h-4 text-slate-400" />
+              <FolderArchive className="w-4 h-4 text-slate-400" />
             </div>
             <p className="text-xs text-slate-300 leading-relaxed pt-1">
-              Open <strong>Obsidian</strong> and navigate to:
+              On any computer, clone the repository or open your existing vault folder:
             </p>
-            <div className="p-2 rounded-lg bg-fantasy-800/80 border border-fantasy-700 text-xs text-amber-200 font-medium">
-              Settings (⚙️) → Community Plugins → Turn off Restricted Mode
+            <div className="space-y-1.5 text-xs text-slate-300 bg-fantasy-800/80 p-2.5 rounded-lg border border-fantasy-700">
+              <p className="text-[11px] text-slate-400 font-semibold">Option A (New Setup):</p>
+              <code className="block font-mono text-[11px] text-amber-300 select-all">git clone https://github.com/inchyc/dnd-campaign-note.git</code>
+              <p className="text-[11px] text-slate-400 font-semibold pt-1">Option B (Existing Vault Folder):</p>
+              <code className="block font-mono text-[11px] text-slate-300 select-all">git init && git remote add origin https://github.com/inchyc/dnd-campaign-note.git</code>
             </div>
           </div>
 
@@ -292,16 +342,20 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
                 <span className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center text-xs font-bold text-amber-300">
                   2
                 </span>
-                <span>Install "Obsidian Git"</span>
+                <span>Install "Obsidian Git" Plugin</span>
               </div>
               <Puzzle className="w-4 h-4 text-slate-400" />
             </div>
             <p className="text-xs text-slate-300 leading-relaxed pt-1">
-              Click <strong>Browse</strong> and search for:
+              Inside Obsidian on that computer:
             </p>
-            <div className="p-2 rounded-lg bg-fantasy-800/80 border border-fantasy-700 text-xs text-amber-200 font-medium flex items-center justify-between">
-              <span><strong>Git</strong> (by Denis Olehov)</span>
-              <span className="text-[11px] text-emerald-400 font-semibold">Click Install & Enable</span>
+            <div className="p-2.5 rounded-lg bg-fantasy-800/80 border border-fantasy-700 text-xs text-slate-300 space-y-1">
+              <div>1. Go to <strong>Settings (⚙️) → Community Plugins</strong>.</div>
+              <div>2. Turn off <strong>Restricted Mode</strong>.</div>
+              <div className="flex items-center justify-between pt-0.5">
+                <span>3. Browse and search <strong>"Git"</strong> (by Denis Olehov).</span>
+                <span className="text-[11px] text-emerald-400 font-semibold">Install & Enable</span>
+              </div>
             </div>
           </div>
 
@@ -312,21 +366,19 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
                 <span className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center text-xs font-bold text-amber-300">
                   3
                 </span>
-                <span>Set Auto-Backup Interval</span>
+                <span>Authenticate with GitHub</span>
               </div>
-              <Clock className="w-4 h-4 text-slate-400" />
+              <Settings className="w-4 h-4 text-slate-400" />
             </div>
             <p className="text-xs text-slate-300 leading-relaxed pt-1">
-              Under <strong>Community Plugins → Git Settings</strong>:
+              In Obsidian under <strong>Community Plugins → Git Settings</strong>:
             </p>
-            <div className="space-y-1 text-xs text-slate-300 bg-fantasy-800/80 p-2 rounded-lg border border-fantasy-700">
-              <div className="flex items-center justify-between">
-                <span>Vault backup interval:</span>
-                <span className="text-amber-300 font-semibold font-mono">5 or 10 minutes</span>
+            <div className="space-y-1.5 text-xs text-slate-300 bg-fantasy-800/80 p-2.5 rounded-lg border border-fantasy-700">
+              <div className="text-[11px] text-slate-300">
+                Under <strong>Authentication</strong>, enter your GitHub Username and a <strong>Personal Access Token (PAT)</strong> with <code className="text-amber-300">repo</code> permissions.
               </div>
-              <div className="flex items-center justify-between">
-                <span>Backup on save:</span>
-                <span className="text-emerald-400 font-semibold">Enabled (ON)</span>
+              <div className="text-[11px] text-slate-400 pt-0.5">
+                (Generate token in GitHub: Settings → Developer Settings → Personal Access Tokens).
               </div>
             </div>
           </div>
@@ -338,15 +390,22 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
                 <span className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center text-xs font-bold text-amber-300">
                   4
                 </span>
-                <span>Seamless Background Sync</span>
+                <span>Set Auto-Backup & Done</span>
               </div>
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <Clock className="w-4 h-4 text-slate-400" />
             </div>
             <p className="text-xs text-slate-300 leading-relaxed pt-1">
-              You are all set! Obsidian now runs silently in the background:
+              Still in Git settings, configure automatic background intervals:
             </p>
-            <div className="p-2 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-xs text-emerald-300 leading-relaxed">
-              Every edit you save is committed and synchronized automatically with your campaign repository.
+            <div className="space-y-1 text-xs text-slate-300 bg-fantasy-800/80 p-2.5 rounded-lg border border-fantasy-700">
+              <div className="flex items-center justify-between">
+                <span>Vault backup interval:</span>
+                <span className="text-amber-300 font-semibold font-mono">5 or 10 minutes</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Backup on save:</span>
+                <span className="text-emerald-400 font-semibold">Enabled (ON)</span>
+              </div>
             </div>
           </div>
         </div>
@@ -424,6 +483,17 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
               <div className="px-3 py-1 rounded bg-fantasy-800 border border-fantasy-700 text-slate-300 text-xs font-mono shrink-0">
                 start-vault-watcher.bat
               </div>
+            </div>
+
+            {/* Custom Vault Path Tip */}
+            <div className="p-3 rounded-xl bg-fantasy-900/60 border border-fantasy-700/50 text-[11px] text-slate-300 space-y-1">
+              <span className="font-semibold text-amber-300">💡 Custom Vault Location for Any PC:</span>
+              <p className="text-slate-400">
+                To run the sync watcher pointing directly at any personal vault folder on any computer, pass the <code className="text-amber-300 font-mono">--vault="&lt;path&gt;"</code> parameter:
+              </p>
+              <code className="block p-1.5 rounded bg-black/40 border border-slate-800 font-mono text-[10px] text-amber-300 select-all overflow-x-auto">
+                npm run vault:watch -- --vault="C:\Users\icinc\Documents\Obsidian Vault\Chris\TTRPG\D&D\Starving Vilgeismar"
+              </code>
             </div>
 
             {/* CLI Commands */}
