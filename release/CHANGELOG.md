@@ -1,5 +1,16 @@
 # Release & Version Changelog
 
+## [v1.2.5] - 2026-11-11
+### Added & Improved
+- **Cleaned UI & Aesthetic Overhaul**:
+  - Removed all raw terminal syntax (such as `('npm run vault:watch')`) from headings and titles.
+  - Replaced technical clutter with polished, fantasy-themed action badges and clean typography.
+- **Obsidian Git Community Plugin Walkthrough (Primary Recommendation)**:
+  - Added a step-by-step visual setup guide for **Obsidian Git** (the #1 official community plugin by Denis Olehov).
+  - Enables zero-terminal, zero-script automatic synchronization directly inside Obsidian Desktop and Mobile.
+- **Collapsible Advanced Options Accordion**:
+  - Tucked the 1-click Windows `.bat` launcher and developer CLI commands inside a discrete, expandable drawer to keep the interface calm and elegant.
+
 ## [v1.2.4] - 2026-11-11
 ### Added & Improved
 - **Live Background Watcher (`npm run vault:watch`)**:

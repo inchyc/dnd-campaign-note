@@ -14,14 +14,18 @@ import {
   Sparkles,
   Layers,
   HelpCircle,
-  ExternalLink,
   FolderArchive,
   ArrowRight,
   ShieldCheck,
-  Radio,
   Play,
   Infinity,
-  Zap,
+  GitBranch,
+  ChevronDown,
+  ChevronUp,
+  Settings,
+  Puzzle,
+  Clock,
+  ExternalLink,
 } from "lucide-react";
 
 interface VaultStatus {
@@ -47,6 +51,7 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
 
   const fetchStatus = async () => {
     setLoading(true);
@@ -91,30 +96,29 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
     }
   };
 
-  const syncCommands = [
+  const advancedCommands = [
     {
       id: "sync-watch",
-      title: "⚡ Live Background Watcher (Recommended)",
-      desc: "Watches your local Obsidian vault in real time. Whenever you save a note in Obsidian, it automatically pushes that single note to the cloud. When party members make edits in the app, it pulls them down into your Obsidian folder.",
+      title: "Live Background Watcher",
+      desc: "Watches your local vault folder. Edits push automatically to Supabase on save, and party edits pull down every 12 seconds.",
       cmd: "npm run vault:watch",
-      isPrimary: true,
     },
     {
       id: "sync-bidirectional",
-      title: "One-Time Bidirectional Sync",
-      desc: "Performs a single reconcile pass comparing timestamps between your local vault and Supabase, pushing local edits and pulling remote changes.",
+      title: "One-Time Reconciliation",
+      desc: "Compares timestamps between your local vault and the database, pushing edits and pulling updates in one pass.",
       cmd: "npm run vault:sync",
     },
     {
       id: "sync-pull",
       title: "Pull from Cloud Only",
-      desc: "Overwrites local files with the latest state from the cloud database without pushing any local edits.",
+      desc: "Fetches latest changes from the cloud database into your local markdown files.",
       cmd: "npm run vault:sync -- --pull",
     },
     {
       id: "sync-push",
       title: "Push to Cloud Only",
-      desc: "Uploads all your local Obsidian markdown notes directly to the cloud database.",
+      desc: "Uploads your local Obsidian markdown notes to the cloud database.",
       cmd: "npm run vault:sync -- --push",
     },
   ];
@@ -127,13 +131,13 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-semibold tracking-wide uppercase">
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              Continuous Obsidian.md Integration
+              Obsidian.md Synchronization
             </div>
             <h1 className="text-2xl sm:text-3xl font-serif font-bold text-amber-100">
-              Vault & Real-Time Sync
+              Vault & Automatic Sync
             </h1>
             <p className="text-sm text-slate-300 max-w-xl leading-relaxed">
-              Use Obsidian.md seamlessly alongside this app. Edits push and pull automatically in the background without needing to copy or export .zip files.
+              Connect Obsidian.md with your campaign hub. All notes, folders, wikilinks, task checkboxes, and frontmatter stay synchronized across your devices.
             </p>
           </div>
 
@@ -143,10 +147,10 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
               onClick={handleDownloadVault}
               disabled={downloading}
               className="px-4 py-2.5 rounded-xl bg-fantasy-800 hover:bg-fantasy-700 border border-fantasy-700 text-slate-200 text-sm font-semibold shadow flex items-center gap-2 transition disabled:opacity-50"
-              title="Download an offline .zip snapshot backup"
+              title="Download an offline backup archive"
             >
               <Download className={`w-4 h-4 ${downloading ? "animate-bounce" : ""}`} />
-              <span>{downloading ? "Zipping..." : "Backup Vault (.zip)"}</span>
+              <span>{downloading ? "Creating Archive..." : "Backup Vault (.zip)"}</span>
             </button>
             <button
               type="button"
@@ -206,14 +210,14 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
             <span className="font-semibold uppercase tracking-wider">Campaign Notes</span>
             <div className="flex items-center gap-1 text-emerald-400 text-[11px] font-semibold">
               <Infinity className="w-3.5 h-3.5" />
-              <span>No Limit</span>
+              <span>Unlimited</span>
             </div>
           </div>
           <div className="mt-3">
             <p className="text-2xl font-bold font-serif text-slate-100">
               {status ? status.notesCount : "..."}
             </p>
-            <p className="text-xs text-emerald-400/90 mt-1">Unlimited capacity (No caps)</p>
+            <p className="text-xs text-emerald-400/90 mt-1">Full capacity (No limits)</p>
           </div>
         </div>
 
@@ -237,173 +241,118 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
         </div>
       </div>
 
-      {/* 2. Primary Feature: Real-Time Live Watcher Daemon */}
-      <div className="p-6 rounded-2xl bg-gradient-to-br from-fantasy-850 to-fantasy-900 border border-amber-600/50 shadow-xl space-y-6">
+      {/* 2. PRIMARY RECOMMENDED SETUP: Obsidian Git Plugin */}
+      <div className="p-6 sm:p-7 rounded-2xl bg-gradient-to-br from-fantasy-850 to-fantasy-900 border border-amber-600/50 shadow-xl space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 shadow-md">
-              <Zap className="w-6 h-6" />
+          <div className="flex items-center gap-3.5">
+            <div className="p-3 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 shadow-md">
+              <GitBranch className="w-6 h-6" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-xl font-bold font-serif text-amber-100">
-                  Live Background Watcher (`npm run vault:watch`)
+                  Automatic Sync via Obsidian Git Plugin
                 </h2>
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 border border-emerald-500/40 text-emerald-300">
-                  Recommended
+                  Recommended Plugin
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-slate-300 mt-0.5">
-                Type and edit normally in Obsidian on your computer. Your changes sync to the cloud automatically with zero manual steps!
+                The standard, official community plugin used by hundreds of thousands of Obsidian users. Syncs automatically in the background without any terminal commands or batch files.
               </p>
             </div>
           </div>
         </div>
 
-        {/* How Live Watcher Works Banner */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-          <div className="p-3.5 rounded-xl bg-fantasy-900/90 border border-fantasy-700/60 space-y-1">
-            <p className="font-bold text-amber-300 flex items-center gap-1.5">
-              <Radio className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-              1. Continuous File Watcher
-            </p>
-            <p className="text-slate-400 leading-relaxed">
-              Watches your local vault folder. Whenever you edit and save a note in Obsidian, it debounces and pushes only that modified file.
-            </p>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-fantasy-900/90 border border-fantasy-700/60 space-y-1">
-            <p className="font-bold text-amber-300 flex items-center gap-1.5">
-              <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
-              2. Real-Time Cloud Pulls
-            </p>
-            <p className="text-slate-400 leading-relaxed">
-              When party members or the DM update notes on their phones, the watcher pulls the edits directly into your Obsidian markdown files.
-            </p>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-fantasy-900/90 border border-fantasy-700/60 space-y-1">
-            <p className="font-bold text-amber-300 flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-              3. Conflict Safe
-            </p>
-            <p className="text-slate-400 leading-relaxed">
-              Timestamp reconciliation ensures you never lose text. In the rare event of simultaneous edits, an automatic <code className="text-slate-300">.conflict.md</code> backup is preserved.
-            </p>
-          </div>
-        </div>
-
-        {/* Launch Options */}
-        <div className="space-y-3 pt-2">
-          {/* Option A: 1-Click Windows Launcher */}
-          <div className="p-4 rounded-xl bg-fantasy-900 border border-amber-600/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Play className="w-4 h-4 text-emerald-400" />
-                <h3 className="text-sm font-bold text-slate-100">1-Click Windows Shortcut</h3>
+        {/* 4-Step Visual Walkthrough */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Step 1 */}
+          <div className="p-4 rounded-xl bg-fantasy-900/90 border border-fantasy-700/60 space-y-2 relative">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+                <span className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center text-xs font-bold text-amber-300">
+                  1
+                </span>
+                <span>Enable Community Plugins</span>
               </div>
-              <p className="text-xs text-slate-300">
-                Double-click <code className="text-amber-300 font-mono bg-fantasy-800 px-1 py-0.5 rounded">start-vault-watcher.bat</code> in your app root folder to run the sync watcher silently in the background while you play.
-              </p>
+              <Settings className="w-4 h-4 text-slate-400" />
             </div>
-            <div className="px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-semibold shrink-0">
-              Ready in Project Root
+            <p className="text-xs text-slate-300 leading-relaxed pt-1">
+              Open <strong>Obsidian</strong> and navigate to:
+            </p>
+            <div className="p-2 rounded-lg bg-fantasy-800/80 border border-fantasy-700 text-xs text-amber-200 font-medium">
+              Settings (⚙️) → Community Plugins → Turn off Restricted Mode
             </div>
           </div>
 
-          {/* Option B: Terminal Command */}
-          <div className="p-4 rounded-xl bg-fantasy-900 border border-fantasy-700/80 flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-sky-400" />
-                <h3 className="text-sm font-semibold text-slate-200">Terminal Command</h3>
+          {/* Step 2 */}
+          <div className="p-4 rounded-xl bg-fantasy-900/90 border border-fantasy-700/60 space-y-2 relative">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+                <span className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center text-xs font-bold text-amber-300">
+                  2
+                </span>
+                <span>Install "Obsidian Git"</span>
               </div>
-              <p className="text-xs text-slate-400">
-                Run from either the root folder or the <code className="text-slate-300 font-mono">web/</code> directory.
-              </p>
-              <div className="pt-1">
-                <code className="inline-block px-3 py-1 rounded bg-black/60 border border-slate-800 font-mono text-xs text-amber-300 select-all">
-                  npm run vault:watch
-                </code>
+              <Puzzle className="w-4 h-4 text-slate-400" />
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed pt-1">
+              Click <strong>Browse</strong> and search for:
+            </p>
+            <div className="p-2 rounded-lg bg-fantasy-800/80 border border-fantasy-700 text-xs text-amber-200 font-medium flex items-center justify-between">
+              <span><strong>Git</strong> (by Denis Olehov)</span>
+              <span className="text-[11px] text-emerald-400 font-semibold">Click Install & Enable</span>
+            </div>
+          </div>
+
+          {/* Step 3 */}
+          <div className="p-4 rounded-xl bg-fantasy-900/90 border border-fantasy-700/60 space-y-2 relative">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+                <span className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center text-xs font-bold text-amber-300">
+                  3
+                </span>
+                <span>Set Auto-Backup Interval</span>
+              </div>
+              <Clock className="w-4 h-4 text-slate-400" />
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed pt-1">
+              Under <strong>Community Plugins → Git Settings</strong>:
+            </p>
+            <div className="space-y-1 text-xs text-slate-300 bg-fantasy-800/80 p-2 rounded-lg border border-fantasy-700">
+              <div className="flex items-center justify-between">
+                <span>Vault backup interval:</span>
+                <span className="text-amber-300 font-semibold font-mono">5 or 10 minutes</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Backup on save:</span>
+                <span className="text-emerald-400 font-semibold">Enabled (ON)</span>
               </div>
             </div>
+          </div>
 
-            <button
-              type="button"
-              onClick={() => copyToClipboard("npm run vault:watch", "cmd-watch")}
-              className="self-start md:self-center px-3.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition shrink-0 shadow"
-            >
-              {copiedKey === "cmd-watch" ? (
-                <>
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Copied!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>Copy Command</span>
-                </>
-              )}
-            </button>
+          {/* Step 4 */}
+          <div className="p-4 rounded-xl bg-fantasy-900/90 border border-fantasy-700/60 space-y-2 relative">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+                <span className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center text-xs font-bold text-amber-300">
+                  4
+                </span>
+                <span>Seamless Background Sync</span>
+              </div>
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed pt-1">
+              You are all set! Obsidian now runs silently in the background:
+            </p>
+            <div className="p-2 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-xs text-emerald-300 leading-relaxed">
+              Every edit you save is committed and synchronized automatically with your campaign repository.
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 3. Manual Sync CLI Commands */}
-      <div className="p-6 rounded-2xl bg-fantasy-850 border border-fantasy-700/80 shadow-lg space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400">
-            <Terminal className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold font-serif text-slate-100">
-              One-Shot Sync Commands (`vault:sync`)
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-400">
-              Useful for performing a single manual reconcile pass without leaving a continuous background process running.
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-3 pt-1">
-          {syncCommands
-            .filter((c) => !c.isPrimary)
-            .map((item) => (
-              <div
-                key={item.id}
-                className="p-3.5 rounded-xl bg-fantasy-900/90 border border-fantasy-700/60 flex flex-col md:flex-row md:items-center justify-between gap-3"
-              >
-                <div className="space-y-1">
-                  <h3 className="text-xs font-semibold text-slate-200">{item.title}</h3>
-                  <p className="text-xs text-slate-400 leading-relaxed max-w-2xl">{item.desc}</p>
-                  <code className="inline-block mt-0.5 px-2.5 py-0.5 rounded bg-black/50 border border-slate-800 font-mono text-xs text-amber-300 select-all">
-                    {item.cmd}
-                  </code>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => copyToClipboard(item.cmd, item.id)}
-                  className="self-start md:self-center px-3 py-1.5 rounded-lg bg-fantasy-800 hover:bg-fantasy-700 border border-fantasy-700 text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5 transition shrink-0"
-                >
-                  {copiedKey === item.id ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span className="text-emerald-400">Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Copy</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            ))}
-        </div>
-      </div>
-
-      {/* 4. Offline Snapshot Backup (.zip) */}
+      {/* 3. Offline Snapshot Backup (.zip) */}
       <div className="p-6 rounded-2xl bg-fantasy-850 border border-fantasy-700/80 shadow-lg space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
@@ -415,7 +364,7 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
                 Offline Snapshot Backup (.zip)
               </h2>
               <p className="text-xs sm:text-sm text-slate-400">
-                Download a complete, self-contained archive of your campaign's markdown files for offline viewing or external backups.
+                Download a clean, portable archive of your campaign's markdown notes for offline use or safe keeping.
               </p>
             </div>
           </div>
@@ -427,9 +376,93 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
             className="px-4 py-2 rounded-xl bg-amber-600/30 hover:bg-amber-600/40 border border-amber-600/50 text-amber-200 text-xs font-semibold flex items-center gap-2 transition"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>{downloading ? "Preparing ZIP..." : "Download Full Archive (.zip)"}</span>
+            <span>{downloading ? "Preparing ZIP..." : "Download Vault Archive (.zip)"}</span>
           </button>
         </div>
+      </div>
+
+      {/* 4. COLLAPSIBLE ADVANCED DEVELOPER TOOLS */}
+      <div className="rounded-2xl bg-fantasy-850 border border-fantasy-700/80 shadow-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
+          className="w-full p-5 flex items-center justify-between text-left hover:bg-fantasy-800/40 transition"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300">
+              <Terminal className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-200">
+                Advanced Tools: Windows Launcher & Terminal Sync
+              </h3>
+              <p className="text-xs text-slate-400">
+                Optional scripts and CLI commands for automated local syncing
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <span>{isAdvancedOpen ? "Collapse" : "Show Options"}</span>
+            {isAdvancedOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </div>
+        </button>
+
+        {isAdvancedOpen && (
+          <div className="p-5 pt-2 border-t border-fantasy-700/60 space-y-4 bg-fantasy-900/60">
+            {/* 1-Click Windows Shortcut */}
+            <div className="p-4 rounded-xl bg-fantasy-900 border border-amber-600/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Play className="w-4 h-4 text-emerald-400" />
+                  <h4 className="text-xs font-bold text-slate-100">1-Click Windows Launcher</h4>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Double-click <code className="text-amber-300 font-mono bg-fantasy-800 px-1 py-0.5 rounded">start-vault-watcher.bat</code> in the project root to run the background sync daemon without opening a terminal.
+                </p>
+              </div>
+              <div className="px-3 py-1 rounded bg-fantasy-800 border border-fantasy-700 text-slate-300 text-xs font-mono shrink-0">
+                start-vault-watcher.bat
+              </div>
+            </div>
+
+            {/* CLI Commands */}
+            <div className="space-y-2.5">
+              {advancedCommands.map((item) => (
+                <div
+                  key={item.id}
+                  className="p-3 rounded-xl bg-fantasy-900 border border-fantasy-700/60 flex flex-col md:flex-row md:items-center justify-between gap-2.5"
+                >
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-semibold text-slate-200">{item.title}</p>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">{item.desc}</p>
+                    <code className="inline-block mt-0.5 px-2 py-0.5 rounded bg-black/60 border border-slate-800 font-mono text-[11px] text-amber-300 select-all">
+                      {item.cmd}
+                    </code>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(item.cmd, item.id)}
+                    className="self-start md:self-center px-3 py-1 rounded-lg bg-fantasy-800 hover:bg-fantasy-700 border border-fantasy-700 text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5 transition shrink-0"
+                  >
+                    {copiedKey === item.id ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-emerald-400">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 5. How Obsidian Compatibility Works */}
@@ -443,7 +476,7 @@ export function ObsidianSyncView({ activeCampaign, isScribe }: ObsidianSyncViewP
               How Obsidian Compatibility Works
             </h2>
             <p className="text-xs sm:text-sm text-slate-400">
-              Native Markdown primitives that power both Obsidian and this campaign hub.
+              Standard Markdown formatting shared natively between Obsidian and this campaign hub.
             </p>
           </div>
         </div>
