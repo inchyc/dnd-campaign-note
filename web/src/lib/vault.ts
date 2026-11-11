@@ -1,6 +1,7 @@
 import matter from "gray-matter";
 import type { Ctx, HubUser } from "./auth";
 import { walk } from "./storage";
+import { getSupabaseAdmin, isSupabaseConfigured } from "./supabaseClient";
 
 export type Category = "npc" | "location" | "lore" | "quest" | "item" | "party" | "session";
 
@@ -152,6 +153,45 @@ export function updateIndexedNote(campaignId: string, filePath: string, newRaw: 
 export async function loadIndex(ctx: Pick<Ctx, "campaign" | "storage">, forceFresh = false): Promise<IndexedNote[]> {
   const hit = cache.get(ctx.campaign.id);
   if (!forceFresh && hit && Date.now() - hit.at < TTL) return hit.notes;
+
+  // Supabase Database query (fastest, ACID-consistent)
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase
+        .from("notes")
+        .select("*")
+        .eq("campaign_id", ctx.campaign.id);
+
+      if (!error && data && data.length > 0) {
+        const notes: IndexedNote[] = data.map((row) => ({
+          path: row.path,
+          title: row.title,
+          category: row.category as Category,
+          sub: row.subcategory || undefined,
+          summary: row.summary || "",
+          status: row.status,
+          faction: row.frontmatter?.faction?.replace(/\[\[|\]\]/g, ""),
+          location: row.frontmatter?.location?.replace(/\[\[|\]\]/g, ""),
+          priority: row.priority,
+          secret: row.visibility === "dm",
+          revealed: row.frontmatter?.revealed === true || row.frontmatter?.revealed === "true",
+          owner: row.character || row.frontmatter?.owner,
+          visibleToParty: row.visibility === "party" || row.frontmatter?.visible_to_party === true,
+          playerField: row.frontmatter?.player,
+          mtime: Number(row.mtime) || Date.now(),
+          raw: row.raw_content,
+          body: row.body,
+          frontmatter: row.frontmatter || {},
+        }));
+        notes.sort((a, b) => a.title.localeCompare(b.title));
+        cache.set(ctx.campaign.id, { at: Date.now(), notes });
+        return notes;
+      }
+    } catch (err) {
+      console.warn("Supabase loadIndex query failed, falling back:", err);
+    }
+  }
 
   // Prime immediately from manifest if available and not in cache
   if (!forceFresh && !hit && bundledManifest?.notes && (bundledManifest.campaignId === ctx.campaign.id || ctx.campaign.id === "starving-miracle")) {

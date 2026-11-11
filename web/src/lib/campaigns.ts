@@ -1,7 +1,8 @@
 import fs from "fs";
 import path from "path";
 import { ROOT, getEnv } from "./config";
-import { LocalFsStorage, GitHubStorage, Storage } from "./storage";
+import { LocalFsStorage, GitHubStorage, SupabaseStorage, Storage } from "./storage";
+import { isSupabaseConfigured } from "./supabaseClient";
 
 export interface Campaign {
   id: string;
@@ -67,7 +68,18 @@ export function getStorage(campaign: Campaign): Storage {
   let s = storages.get(campaign.id);
   if (s) return s;
 
-  // Cloud Mode: GitHub REST API storage (for Vercel deployment)
+  // Supabase Mode (Preferred Cloud Database backend)
+  const useSupabase =
+    getEnv("STORAGE_BACKEND") === "supabase" ||
+    (getEnv("STORAGE_BACKEND") !== "github" && getEnv("STORAGE_BACKEND") !== "local" && isSupabaseConfigured());
+
+  if (useSupabase) {
+    s = new SupabaseStorage(campaign.id);
+    storages.set(campaign.id, s);
+    return s;
+  }
+
+  // Cloud Mode: GitHub REST API storage (for Vercel deployment without database)
   const isCloud = getEnv("STORAGE_BACKEND") === "github" || !!getEnv("GITHUB_TOKEN") || process.env.VERCEL === "1";
   let repo = getEnv("GITHUB_REPO") || "inchyc/dnd-campaign-note";
   if (!repo || repo.includes("starving-miracle-hub")) {

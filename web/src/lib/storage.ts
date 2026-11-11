@@ -1,5 +1,8 @@
 import fs from "fs";
 import path from "path";
+import matter from "gray-matter";
+import { getSupabaseAdmin, isSupabaseConfigured } from "./supabaseClient";
+import { updateIndexedNote } from "./vault";
 
 /**
  * Storage adapter. Everything in the app reads/writes the vault through this
@@ -341,6 +344,194 @@ export class GitHubStorage implements Storage {
 
   async mtime(p: string): Promise<number> {
     return this.localMtimes.get(p) || Date.now();
+  }
+}
+
+/**
+ * Cloud Storage Adapter: Supabase / PostgreSQL.
+ * Provides microsecond reads, ACID transactional writes, and instant Realtime WebSocket broadcasts.
+ */
+export class SupabaseStorage implements Storage {
+  private campaignId: string;
+
+  constructor(campaignId: string) {
+    this.campaignId = campaignId;
+  }
+
+  private cleanPath(p: string): string {
+    return p.replace(/^\/+/, "");
+  }
+
+  async read(p: string): Promise<string> {
+    const supabase = getSupabaseAdmin();
+    const clean = this.cleanPath(p);
+    const { data, error } = await supabase
+      .from("notes")
+      .select("raw_content")
+      .eq("campaign_id", this.campaignId)
+      .eq("path", clean)
+      .single();
+
+    if (error || !data) {
+      throw new Error(`File not found in Supabase: ${clean}`);
+    }
+
+    return data.raw_content;
+  }
+
+  async write(p: string, content: string): Promise<void> {
+    const supabase = getSupabaseAdmin();
+    const clean = this.cleanPath(p);
+
+    let fm: Record<string, any> = {};
+    let body = content;
+    try {
+      const parsed = matter(content);
+      fm = parsed.data || {};
+      body = parsed.content;
+    } catch {
+      // not yaml
+    }
+
+    const parts = clean.split("/");
+    const stem = parts[parts.length - 1].replace(/\.md$/i, "");
+    const topFolder = parts[1] || "";
+    let category = "lore";
+    if (topFolder === "NPCs") category = "npc";
+    else if (topFolder === "Locations") category = "location";
+    else if (topFolder === "Lore") category = "lore";
+    else if (topFolder === "Investigations") category = "quest";
+    else if (topFolder === "Inventory & Gear") category = "item";
+    else if (topFolder === "PC Notes") category = "party";
+    else if (topFolder === "Session Notes") category = "session";
+
+    const isSecretPath = parts.includes("Secrets") || stem.startsWith("Secret - ");
+    const secret = isSecretPath || fm.secret === true || fm.dm_only === true;
+
+    let visibility = "party";
+    if (secret) {
+      visibility = "dm";
+    } else if (fm.owner || category === "party") {
+      visibility = fm.visible_to_party ? "party" : "pc";
+    }
+
+    const title = stem.replace(/^(NPC|Lore|Item|Faction|Secret|Location)\s*-\s*/, "");
+    const mtime = Date.now();
+
+    // Extract tasks
+    const tasks: Array<{ lineIndex: number; checked: boolean; text: string }> = [];
+    const lines = body.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^(\s*[-*]\s*\[([ xX])\]\s*)(.*)$/);
+      if (m) {
+        tasks.push({
+          lineIndex: i,
+          checked: m[2].toLowerCase() === "x",
+          text: m[3].trim(),
+        });
+      }
+    }
+
+    const record = {
+      campaign_id: this.campaignId,
+      path: clean,
+      title,
+      category,
+      subcategory: parts.length > 3 ? parts[2] : null,
+      status: (fm.status || "active").toString().toLowerCase(),
+      priority: (fm.priority || "medium").toString().toLowerCase(),
+      lead: fm.lead || (fm.owner ? String(fm.owner) : null),
+      summary: fm.summary || null,
+      visibility,
+      character: fm.owner ? String(fm.owner) : (fm.player ? String(fm.player) : null),
+      tags: Array.isArray(fm.tags) ? fm.tags.map(String) : [],
+      aliases: Array.isArray(fm.aliases) ? fm.aliases.map(String) : [],
+      raw_content: content,
+      body,
+      frontmatter: fm,
+      tasks,
+      mtime,
+    };
+
+    const { error } = await supabase.from("notes").upsert(record, {
+      onConflict: "campaign_id,path",
+    });
+
+    if (error) {
+      throw new Error(`Failed to write note to Supabase: ${error.message}`);
+    }
+
+    // Keep active in-memory cache synchronized as well
+    try {
+      updateIndexedNote(this.campaignId, clean, content);
+    } catch {
+      // ignore
+    }
+  }
+
+  async readBinary(p: string): Promise<Buffer> {
+    const text = await this.read(p);
+    return Buffer.from(text, "utf-8");
+  }
+
+  async writeBinary(p: string, data: Buffer): Promise<void> {
+    await this.write(p, data.toString("utf-8"));
+  }
+
+  async exists(p: string): Promise<boolean> {
+    const supabase = getSupabaseAdmin();
+    const clean = this.cleanPath(p);
+    const { data, error } = await supabase
+      .from("notes")
+      .select("id")
+      .eq("campaign_id", this.campaignId)
+      .eq("path", clean)
+      .maybeSingle();
+
+    return !error && !!data;
+  }
+
+  async list(dir: string): Promise<DirEntry[]> {
+    const supabase = getSupabaseAdmin();
+    const cleanDir = this.cleanPath(dir);
+    const prefix = cleanDir ? `${cleanDir}/` : "";
+
+    const { data, error } = await supabase
+      .from("notes")
+      .select("path")
+      .eq("campaign_id", this.campaignId)
+      .ilike("path", `${prefix}%`);
+
+    if (error || !data) return [];
+
+    const directChildren = new Map<string, boolean>();
+    for (const item of data) {
+      if (!item.path.startsWith(prefix)) continue;
+      const rest = item.path.slice(prefix.length);
+      if (!rest) continue;
+      const parts = rest.split("/");
+      const name = parts[0];
+      const isDir = parts.length > 1;
+      if (!directChildren.has(name) || isDir) {
+        directChildren.set(name, isDir);
+      }
+    }
+
+    return Array.from(directChildren.entries()).map(([name, isDir]) => ({ name, isDir }));
+  }
+
+  async mtime(p: string): Promise<number> {
+    const supabase = getSupabaseAdmin();
+    const clean = this.cleanPath(p);
+    const { data, error } = await supabase
+      .from("notes")
+      .select("mtime")
+      .eq("campaign_id", this.campaignId)
+      .eq("path", clean)
+      .single();
+
+    if (error || !data) return Date.now();
+    return Number(data.mtime) || Date.now();
   }
 }
 
