@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Edit3,
   Users,
@@ -19,6 +19,7 @@ import {
   Copy,
   Check,
 } from "lucide-react";
+import { SessionQuickRef } from "./SessionQuickRef";
 
 interface ScratchLine {
   id: string;
@@ -58,12 +59,40 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
   const [submitting, setSubmitting] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Restore saved tab on mount
+  useEffect(() => {
+    try {
+      const savedTab = localStorage.getItem("dnd_scratchpad_tab");
+      if (savedTab === "mine" || savedTab === "table") {
+        setActiveTab(savedTab);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handleTabChange = (tab: "mine" | "table") => {
+    setActiveTab(tab);
+    try {
+      localStorage.setItem("dnd_scratchpad_tab", tab);
+    } catch {
+      // ignore
+    }
+  };
+
   const handleCopyText = (id: string, text: string) => {
     if (typeof navigator !== "undefined" && navigator.clipboard) {
       navigator.clipboard.writeText(text);
     }
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleInsertFromQuickRef = (text: string) => {
+    setNewNoteText((prev) => {
+      if (!prev.trim()) return text + ": ";
+      return prev.trimEnd() + " " + text + " ";
+    });
   };
 
   // Scribe collation state
@@ -78,16 +107,19 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
       const data = await res.json();
       if (data.success) {
         setSessionDate(data.session);
-        if (!collateDate) setCollateDate(data.session);
-        setMyLines(data.mine || []);
-        setTableLines(data.shared || []);
+        setCollateDate((prev) => prev || data.session);
+        // Render newest notes first
+        const sortedMine = (data.mine || []).slice().sort((a: ScratchLine, b: ScratchLine) => b.at - a.at);
+        const sortedShared = (data.shared || []).slice().sort((a: ScratchLine, b: ScratchLine) => b.at - a.at);
+        setMyLines(sortedMine);
+        setTableLines(sortedShared);
       }
     } catch (e) {
       console.error("Failed to load scratchpad", e);
     } finally {
       setLoading(false);
     }
-  }, [collateDate]);
+  }, []);
 
   useEffect(() => {
     fetchScratchpad();
@@ -120,10 +152,16 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
       authorId: currentUser?.id,
     };
 
-    // Optimistically update UI
-    setMyLines((prev) => [...prev, optimisticLine]);
+    // If saving a private note while on Table Feed, auto-switch to "mine" so it's immediately visible
+    if (!shareImmediately && activeTab === "table") {
+      handleTabChange("mine");
+      showStatus("Note saved privately to My Scratchpad.");
+    }
+
+    // Optimistically update UI (prepend so it's immediately visible at the top)
+    setMyLines((prev) => [optimisticLine, ...prev]);
     if (shareImmediately) {
-      setTableLines((prev) => [...prev, optimisticLine]);
+      setTableLines((prev) => [optimisticLine, ...prev]);
     }
     setNewNoteText("");
 
@@ -263,7 +301,7 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
           <div className="flex items-center p-1 bg-fantasy-900 border border-fantasy-700 rounded-lg">
             <button
               type="button"
-              onClick={() => setActiveTab("mine")}
+              onClick={() => handleTabChange("mine")}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition flex items-center gap-1.5 ${
                 activeTab === "mine"
                   ? "bg-amber-600 text-slate-950 font-semibold"
@@ -274,7 +312,7 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab("table")}
+              onClick={() => handleTabChange("table")}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition flex items-center gap-1.5 ${
                 activeTab === "table"
                   ? "bg-amber-600 text-slate-950 font-semibold"
@@ -286,6 +324,9 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
           </div>
         </div>
       </div>
+
+      {/* Session Quick Reference Banner */}
+      <SessionQuickRef onInsertText={handleInsertFromQuickRef} />
 
       {/* Instructions Card */}
       <div className="p-4 rounded-xl bg-fantasy-900/80 border border-amber-600/30 text-xs text-slate-300 space-y-2">

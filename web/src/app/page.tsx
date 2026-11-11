@@ -15,6 +15,7 @@ import {
   CheckCircle,
   Clock,
   Compass,
+  Calendar,
   FileText,
   Plus,
   RefreshCw,
@@ -37,6 +38,7 @@ import { MarkdownView } from "@/components/MarkdownView";
 import { QuestBoard, questBucket } from "@/components/QuestBoard";
 import { PartyLootView } from "@/components/PartyLootView";
 import { ScratchpadView } from "@/components/ScratchpadView";
+import { SessionNotesView } from "@/components/SessionNotesView";
 import { AudioScribe } from "@/components/AudioScribe";
 import { ScribeReviewsView } from "@/components/ScribeReviewsView";
 import { ObsidianSyncView } from "@/components/ObsidianSyncView";
@@ -96,7 +98,7 @@ export default function CampaignHub() {
   const [isCampaignMenuOpen, setIsCampaignMenuOpen] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
-    "home" | "sheet" | "npcs" | "locations" | "lore" | "quests" | "party" | "scratchpad" | "audio" | "reviews" | "sync"
+    "home" | "sheet" | "sessions" | "npcs" | "locations" | "lore" | "quests" | "party" | "scratchpad" | "audio" | "reviews" | "sync"
   >("home");
 
   // Home dashboard data
@@ -663,6 +665,7 @@ export default function CampaignHub() {
           {[
             { id: "home", label: "Dashboard", icon: Sparkles },
             { id: "sheet", label: "Character Sheet", icon: Shield },
+            { id: "sessions", label: "Session Notes", icon: Calendar },
             { id: "npcs", label: "NPCs", icon: Users },
             { id: "locations", label: "Locations", icon: MapPin },
             { id: "lore", label: "Lore", icon: BookOpen },
@@ -1249,6 +1252,35 @@ export default function CampaignHub() {
           </div>
         )}
 
+        {/* VIEW: SESSION NOTES */}
+        {activeTab === "sessions" && (
+          <SessionNotesView
+            isScribe={isScribe}
+            onOpenScratchpad={() => setActiveTab("scratchpad")}
+            onSelectNote={(path) => setSelectedNotePath(path)}
+            onNavigateToWikilink={(target) => {
+              const candidate = categoryNotes.find(
+                (n) => n.title.toLowerCase() === target.toLowerCase()
+              );
+              if (candidate) {
+                setSelectedNotePath(candidate.path);
+              } else {
+                fetch("/api/notes", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ q: target }),
+                })
+                  .then((res) => res.json())
+                  .then((data) => {
+                    if (data.results?.length > 0) {
+                      setSelectedNotePath(data.results[0].meta.path);
+                    }
+                  });
+              }
+            }}
+          />
+        )}
+
         {/* VIEW: 5E CHARACTER SHEET */}
         {activeTab === "sheet" && (
           <CharacterSheetView
@@ -1280,6 +1312,13 @@ export default function CampaignHub() {
             icon: Shield,
             active: activeTab === "sheet",
             onClick: () => setActiveTab("sheet"),
+          },
+          {
+            id: "sessions",
+            label: "Sessions",
+            icon: Calendar,
+            active: activeTab === "sessions",
+            onClick: () => setActiveTab("sessions"),
           },
           {
             id: "quests",

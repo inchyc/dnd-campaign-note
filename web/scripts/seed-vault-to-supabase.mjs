@@ -130,32 +130,51 @@ if (!vaultRoot) {
 console.log(`📡 Connected to Supabase at: ${supabaseUrl}`);
 console.log(`📂 Seeding from vault at: ${vaultRoot}`);
 
+async function withRetry(fn, desc = "operation", maxAttempts = 4) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fn();
+      if (res && res.error) throw new Error(res.error.message || JSON.stringify(res.error));
+      return res;
+    } catch (err) {
+      lastErr = err;
+      console.warn(`⚠️ Warning: ${desc} attempt ${attempt} failed: ${err.message}. Retrying...`);
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
+    }
+  }
+  throw lastErr;
+}
+
 async function seed() {
   const campaignId = "starving-vilgeismar";
 
   // 1. Upsert Campaign
-  const { error: campError } = await supabase.from("campaigns").upsert(
-    {
-      id: campaignId,
-      name: "Starving Vilgeismar",
-      tagline: "A gothic city under siege, hunger gnawing at the lower quarters while shadows stir in the canals.",
-      system: "D&D 5e",
-      chapter: "Chapter 1: The Withered Reach",
-      vault_prefix: "Starving Vilgeismar",
-    },
-    { onConflict: "id" }
+  await withRetry(() =>
+    supabase.from("campaigns").upsert(
+      {
+        id: campaignId,
+        name: "Starving Vilgeismar",
+        tagline: "A gothic city under siege, hunger gnawing at the lower quarters while shadows stir in the canals.",
+        system: "D&D 5e",
+        chapter: "Chapter 1: The Withered Reach",
+        vault_prefix: "Starving Vilgeismar",
+      },
+      { onConflict: "id" }
+    ),
+    "Upsert campaign"
   );
-
-  if (campError) {
-    console.error("❌ Failed to upsert campaign:", campError.message);
-    process.exit(1);
-  }
   console.log("✅ Campaign 'starving-vilgeismar' verified.");
 
   // 2. Walk Notes directory
   const notesDir = path.join(vaultRoot, "Notes");
   const relFiles = walkDir(notesDir, "Notes");
   console.log(`Found ${relFiles.length} markdown notes to process...`);
+
+  // 3. Walk _Review directory
+  const reviewDir = path.join(vaultRoot, "_Review");
+  const reviewFiles = walkDir(reviewDir, "_Review");
+  console.log(`Found ${reviewFiles.length} review files to process...`);
 
   const records = [];
 
@@ -234,6 +253,44 @@ async function seed() {
     }
   }
 
+  for (const revFile of reviewFiles) {
+    const fullPath = path.join(vaultRoot, revFile);
+    try {
+      const raw = fs.readFileSync(fullPath, "utf-8");
+      const parsed = matter(raw);
+      const fm = parsed.data || {};
+      const parts = revFile.split("/");
+      const filename = parts[parts.length - 1];
+      const stem = filename.replace(/\.md$/i, "");
+      const stat = fs.statSync(fullPath);
+
+      records.push({
+        campaign_id: campaignId,
+        path: revFile,
+        title: cleanTitle(stem),
+        category: "review",
+        subcategory: parts.length > 2 ? parts[2] : null,
+        status: (fm.status || "pending_review").toString().toLowerCase(),
+        priority: "medium",
+        lead: null,
+        summary: firstSummary(parsed.content),
+        visibility: "dm",
+        character: null,
+        tags: ["review"],
+        aliases: [],
+        raw_content: raw,
+        body: parsed.content,
+        frontmatter: fm,
+        tasks: [],
+        links: [],
+        backlinks: [],
+        mtime: Math.floor(stat.mtimeMs),
+      });
+    } catch (err) {
+      console.warn(`⚠️ Warning: Failed reading review ${revFile}:`, err.message);
+    }
+  }
+
   // Calculate backlinks across all records
   const linkMap = new Map();
   for (const r of records) {
@@ -252,13 +309,13 @@ async function seed() {
   const CHUNK_SIZE = 50;
   for (let i = 0; i < records.length; i += CHUNK_SIZE) {
     const chunk = records.slice(i, i + CHUNK_SIZE);
-    const { error } = await supabase.from("notes").upsert(chunk, {
-      onConflict: "campaign_id,path",
-    });
-    if (error) {
-      console.error(`❌ Batch upsert error at index ${i}:`, error.message);
-      process.exit(1);
-    }
+    await withRetry(
+      () =>
+        supabase.from("notes").upsert(chunk, {
+          onConflict: "campaign_id,path",
+        }),
+      `Batch upsert chunk ${i + 1}-${Math.min(i + CHUNK_SIZE, records.length)}`
+    );
     console.log(`  Uploaded notes ${i + 1} - ${Math.min(i + CHUNK_SIZE, records.length)}`);
   }
 

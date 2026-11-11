@@ -1,5 +1,6 @@
 import { HttpError, handle, requireCtx } from "@/lib/auth";
-import { collateSession, startLoreMaster } from "@/lib/collate";
+import { collateSession } from "@/lib/collate";
+import { runLoreMasterService } from "@/lib/loreMasterService";
 import { currentSession, isValidSession, setSession } from "@/lib/scratch";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +11,19 @@ export const POST = handle(async (req: Request) => {
   const body = await req.json().catch(() => ({}));
   const session = body.session && isValidSession(body.session) ? body.session : await currentSession(ctx);
   const result = await collateSession(ctx, session);
-  const ai = body.runAi ? startLoreMaster(session) : { started: false };
+
+  let ai = { started: false, error: undefined as string | undefined };
+  if (body.runAi) {
+    try {
+      // Run AI Lore-Master directly on Vercel Node runtime
+      await runLoreMasterService(ctx, session);
+      ai = { started: true, error: undefined };
+    } catch (err: any) {
+      console.warn("AI Lore-Master collation warning:", err.message);
+      ai = { started: false, error: err.message };
+    }
+  }
+
   return Response.json({ success: true, session, ...result, ai });
 });
 
