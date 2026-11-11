@@ -25,9 +25,12 @@ import {
   AlertTriangle,
   Archive,
   CheckCircle2,
+  Heart,
+  Skull,
 } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
 import { getCachedData, setCachedData } from "@/lib/cache";
+import { getCategoryStatuses, getStatusBadge } from "@/lib/statusConfig";
 
 interface NoteModalProps {
   path: string | null;
@@ -366,8 +369,8 @@ export function NoteModal({
     }
   };
 
-  // Handle quest status update (Instant optimistic update + background persistence)
-  const handleQuestStatusUpdate = async (nextStatus: string) => {
+  // Handle status update (Instant optimistic update + background persistence)
+  const handleStatusUpdate = async (nextStatus: string) => {
     if (!currentPath || !noteData) return;
 
     // Optimistically update status badges immediately
@@ -392,7 +395,7 @@ export function NoteModal({
       } else {
         setNoteData({ ...noteData, meta: oldMeta, frontmatter: oldFm });
         const data = await res.json();
-        alert(data.error || "Failed to update quest status");
+        alert(data.error || "Failed to update status");
       }
     } catch {
       setNoteData({ ...noteData, meta: oldMeta, frontmatter: oldFm });
@@ -532,6 +535,12 @@ export function NoteModal({
 
   if (!isOpen) return null;
 
+  const categoryStatuses = noteData ? getCategoryStatuses(noteData.meta.category, noteData.meta.sub) : [];
+  const currentStatusVal = (noteData?.meta.status || noteData?.frontmatter?.status || "").toLowerCase().trim();
+  const isCharacter = noteData?.meta.category === "npc" || noteData?.meta.category === "party";
+  const isQuest = noteData?.meta.category === "quest";
+  const isDeceased = isCharacter && (currentStatusVal === "deceased" || currentStatusVal === "dead" || currentStatusVal === "fallen");
+
   return (
     <div
       onClick={requestClose}
@@ -616,13 +625,55 @@ export function NoteModal({
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Character (PC & NPC) Status Quick Action & Selector */}
+            {isCharacter && (
+              <div className="flex items-center gap-1.5">
+                {isDeceased ? (
+                  <button
+                    type="button"
+                    onClick={() => handleStatusUpdate("alive")}
+                    className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/60 text-emerald-200 transition flex items-center gap-1.5 shadow"
+                    title="Mark character as alive"
+                  >
+                    <Heart className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Mark Alive</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleStatusUpdate("deceased")}
+                    className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-950/60 hover:bg-rose-900/60 border border-rose-500/60 text-rose-300 transition flex items-center gap-1.5 shadow"
+                    title="Mark character as deceased"
+                  >
+                    <Skull className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Mark Deceased</span>
+                  </button>
+                )}
+
+                <div className="flex items-center gap-1 bg-fantasy-800 border border-fantasy-600 rounded-lg px-2 py-0.5 text-xs">
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase hidden sm:inline">Status:</span>
+                  <select
+                    value={isDeceased ? "deceased" : (currentStatusVal || "alive")}
+                    onChange={(e) => handleStatusUpdate(e.target.value)}
+                    className="bg-transparent text-amber-300 font-semibold text-xs focus:outline-none cursor-pointer"
+                  >
+                    {categoryStatuses.map((opt) => (
+                      <option key={opt.value} value={opt.value} className="bg-fantasy-900 text-slate-200">
+                        {opt.icon} {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
             {/* Quest Status Quick Toggle & Mark Complete */}
-            {noteData?.meta.category === "quest" && (
+            {isQuest && (
               <div className="flex items-center gap-1.5">
                 {questBucket(noteData.meta.status || noteData.frontmatter?.status) !== "resolved" ? (
                   <button
                     type="button"
-                    onClick={() => handleQuestStatusUpdate("resolved")}
+                    onClick={() => handleStatusUpdate("resolved")}
                     className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/60 text-emerald-200 transition flex items-center gap-1.5 shadow"
                     title="Mark this investigation as resolved/completed"
                   >
@@ -632,7 +683,7 @@ export function NoteModal({
                 ) : (
                   <button
                     type="button"
-                    onClick={() => handleQuestStatusUpdate("active")}
+                    onClick={() => handleStatusUpdate("active")}
                     className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/60 text-amber-200 transition flex items-center gap-1.5 shadow"
                     title="Re-open this investigation as active"
                   >
@@ -645,7 +696,7 @@ export function NoteModal({
                   <span className="text-[10px] text-slate-400 font-semibold uppercase hidden sm:inline">Status:</span>
                   <select
                     value={questBucket(noteData.meta.status || noteData.frontmatter?.status)}
-                    onChange={(e) => handleQuestStatusUpdate(e.target.value)}
+                    onChange={(e) => handleStatusUpdate(e.target.value)}
                     className="bg-transparent text-amber-300 font-semibold text-xs focus:outline-none cursor-pointer"
                   >
                     <option value="open" className="bg-fantasy-900 text-sky-300">Open</option>
@@ -653,6 +704,24 @@ export function NoteModal({
                     <option value="resolved" className="bg-fantasy-900 text-emerald-300">Resolved</option>
                   </select>
                 </div>
+              </div>
+            )}
+
+            {/* Other Categories Status Selector (Places, Items, Factions) */}
+            {!isCharacter && !isQuest && categoryStatuses.length > 0 && (
+              <div className="flex items-center gap-1 bg-fantasy-800 border border-fantasy-600 rounded-lg px-2 py-0.5 text-xs">
+                <span className="text-[10px] text-slate-400 font-semibold uppercase hidden sm:inline">Status:</span>
+                <select
+                  value={currentStatusVal || categoryStatuses[0]?.value}
+                  onChange={(e) => handleStatusUpdate(e.target.value)}
+                  className="bg-transparent text-amber-300 font-semibold text-xs focus:outline-none cursor-pointer"
+                >
+                  {categoryStatuses.map((opt) => (
+                    <option key={opt.value} value={opt.value} className="bg-fantasy-900 text-slate-200">
+                      {opt.icon} {opt.label}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
 
@@ -796,23 +865,27 @@ export function NoteModal({
                     if (key === "location") badgeColor = "bg-emerald-950/40 border-emerald-700/50 text-emerald-300";
 
                     if (key === "status") {
+                      if (categoryStatuses.length === 0) return null;
+                      const curVal = String(value || "").toLowerCase();
+                      const matched = categoryStatuses.find((o) => o.value === curVal) || categoryStatuses[0];
                       return (
                         <div
                           key={key}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border bg-amber-950/40 border-amber-700/50 text-amber-300"
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border ${matched.badgeClass}`}
                         >
                           <span className="text-slate-400 uppercase tracking-wider font-semibold text-[10px]">
                             status:
                           </span>
                           <select
-                            value={String(value || "").toLowerCase()}
-                            onChange={(e) => handleQuestStatusUpdate(e.target.value)}
-                            className="bg-transparent font-medium text-amber-300 text-xs focus:outline-none cursor-pointer underline"
+                            value={curVal || matched.value}
+                            onChange={(e) => handleStatusUpdate(e.target.value)}
+                            className="bg-transparent font-medium text-xs focus:outline-none cursor-pointer underline"
                           >
-                            <option value="open" className="bg-fantasy-900 text-sky-300">open</option>
-                            <option value="active" className="bg-fantasy-900 text-amber-300">active</option>
-                            <option value="resolved" className="bg-fantasy-900 text-emerald-300">resolved</option>
-                            <option value="archived" className="bg-fantasy-900 text-slate-400">archived</option>
+                            {categoryStatuses.map((opt) => (
+                              <option key={opt.value} value={opt.value} className="bg-fantasy-900 text-slate-200">
+                                {opt.icon} {opt.label}
+                              </option>
+                            ))}
                           </select>
                         </div>
                       );

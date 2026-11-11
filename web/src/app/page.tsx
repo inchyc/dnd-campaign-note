@@ -45,6 +45,7 @@ import { NetworkStatusBar } from "@/components/NetworkStatusBar";
 import { CreateNoteModal } from "@/components/CreateNoteModal";
 import { CreateCampaignModal } from "@/components/CreateCampaignModal";
 import { setCachedData, getCachedData } from "@/lib/cache";
+import { getStatusBadge } from "@/lib/statusConfig";
 
 interface CurrentUser {
   id: string;
@@ -104,6 +105,7 @@ export default function CampaignHub() {
   const [categoryLoading, setCategoryLoading] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
   const [filterSub, setFilterSub] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   // Party & Loot data
   const [partyData, setPartyData] = useState<any>(null);
@@ -227,6 +229,7 @@ export default function CampaignHub() {
     setCategoryLoading(true);
     setFilterQuery("");
     setFilterSub("all");
+    setStatusFilter("all");
     try {
       const res = await fetch(`/api/notes?category=${cat}&archived=1`);
       const data = await res.json();
@@ -407,7 +410,23 @@ export default function CampaignHub() {
       n.title.toLowerCase().includes(filterQuery.toLowerCase()) ||
       (n.summary || "").toLowerCase().includes(filterQuery.toLowerCase());
     const matchesSub = filterSub === "all" || n.sub === filterSub;
-    return matchesQuery && matchesSub;
+    if (!matchesQuery || !matchesSub) return false;
+
+    if (statusFilter !== "all") {
+      const s = (n.status || "").toLowerCase().trim();
+      if (statusFilter === "alive") {
+        return !s || s === "alive" || s === "living" || s === "active";
+      }
+      if (statusFilter === "deceased") {
+        return /(dead|deceased|fallen|killed)/.test(s);
+      }
+      if (statusFilter === "missing") {
+        return /(missing|lost|kidnapped)/.test(s);
+      }
+      return s === statusFilter;
+    }
+
+    return true;
   });
 
   return (
@@ -931,6 +950,58 @@ export default function CampaignHub() {
               </div>
             </div>
 
+            {/* Status Filter Pills (NPCs & Places) */}
+            {activeTab === "npcs" && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mr-1">Status:</span>
+                {[
+                  { id: "all", label: "All NPCs" },
+                  { id: "alive", label: "💚 Alive" },
+                  { id: "deceased", label: "💀 Deceased" },
+                  { id: "missing", label: "❓ Missing" },
+                ].map((pill) => (
+                  <button
+                    key={pill.id}
+                    type="button"
+                    onClick={() => setStatusFilter(pill.id)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition ${
+                      statusFilter === pill.id
+                        ? "bg-amber-600 text-slate-950 font-bold shadow"
+                        : "bg-fantasy-850 hover:bg-fantasy-800 text-slate-300 border border-fantasy-700/60"
+                    }`}
+                  >
+                    {pill.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {activeTab === "locations" && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mr-1">Status:</span>
+                {[
+                  { id: "all", label: "All Places" },
+                  { id: "accessible", label: "🏰 Accessible" },
+                  { id: "dangerous", label: "⚔️ Dangerous" },
+                  { id: "cleared", label: "🛡️ Cleared" },
+                  { id: "ruined", label: "🏚️ Ruined" },
+                ].map((pill) => (
+                  <button
+                    key={pill.id}
+                    type="button"
+                    onClick={() => setStatusFilter(pill.id)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition ${
+                      statusFilter === pill.id
+                        ? "bg-amber-600 text-slate-950 font-bold shadow"
+                        : "bg-fantasy-850 hover:bg-fantasy-800 text-slate-300 border border-fantasy-700/60"
+                    }`}
+                  >
+                    {pill.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Notes Grid */}
             {categoryLoading ? (
               <div className="py-20 flex justify-center text-slate-500">
@@ -954,6 +1025,16 @@ export default function CampaignHub() {
                           {note.title}
                         </h4>
                         <div className="flex items-center gap-1 flex-shrink-0 flex-wrap justify-end">
+                          {(() => {
+                            const badge = getStatusBadge(note.category, note.status, note.sub);
+                            if (!badge) return null;
+                            return (
+                              <span className={`px-1.5 py-0.2 text-[9px] font-semibold rounded border flex items-center gap-0.5 ${badge.badgeClass}`}>
+                                <span>{badge.icon}</span>
+                                <span>{badge.label}</span>
+                              </span>
+                            );
+                          })()}
                           {note.sub && (
                             <span className="px-1.5 py-0.2 text-[9px] rounded bg-fantasy-800 text-amber-400 border border-fantasy-700">
                               {note.sub}

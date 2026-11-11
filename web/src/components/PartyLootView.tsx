@@ -17,6 +17,7 @@ import {
   Plus,
   Search,
 } from "lucide-react";
+import { getStatusBadge } from "@/lib/statusConfig";
 
 interface CharacterMeta {
   path: string;
@@ -24,6 +25,7 @@ interface CharacterMeta {
   summary?: string;
   mine?: boolean;
   visibleToParty?: boolean;
+  status?: string;
   class?: string;
   level?: string;
 }
@@ -168,13 +170,23 @@ export function PartyLootView({
                           <Users className="w-4 h-4" />
                         </span>
                         <div>
-                          <h3 className="font-serif font-bold text-base text-amber-200 group-hover:text-amber-100 flex items-center gap-1.5">
+                          <h3 className="font-serif font-bold text-base text-amber-200 group-hover:text-amber-100 flex items-center gap-1.5 flex-wrap">
                             {char.title}
                             {isMine && (
                               <span className="px-1.5 py-0.2 text-[10px] bg-amber-500 text-slate-950 font-bold rounded uppercase">
                                 You
                               </span>
                             )}
+                            {(() => {
+                              const badge = getStatusBadge("party", char.status);
+                              if (!badge) return null;
+                              return (
+                                <span className={`px-1.5 py-0.2 text-[9px] font-semibold rounded border flex items-center gap-1 ${badge.badgeClass}`}>
+                                  <span>{badge.icon}</span>
+                                  <span>{badge.label}</span>
+                                </span>
+                              );
+                            })()}
                           </h3>
                           {(char.class || char.level) && (
                             <p className="text-xs text-slate-400">
