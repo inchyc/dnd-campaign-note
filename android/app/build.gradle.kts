@@ -11,8 +11,8 @@ android {
     applicationId = "com.starvingmiracle.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 7
-    versionName = "1.2.1"
+    versionCode = 8
+    versionName = "1.2.2"
   }
 
   buildTypes {

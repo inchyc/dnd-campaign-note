@@ -31,6 +31,12 @@ import {
 import { MarkdownView } from "./MarkdownView";
 import { getCachedData, setCachedData } from "@/lib/cache";
 import { getCategoryStatuses, getStatusBadge } from "@/lib/statusConfig";
+import {
+  recordStatusMutation,
+  recordTaskMutation,
+  getJournaledStatus,
+  applyJournalToBody,
+} from "@/lib/mutationJournal";
 
 interface NoteModalProps {
   path: string | null;
@@ -120,14 +126,44 @@ export function NoteModal({
       if (!res.ok || !data.success) {
         throw new Error(data.error || "Failed to load note");
       }
-      setNoteData(data.note);
-      setEditContent(data.note.raw || data.note.body);
-      setCachedData("note_" + notePath, data.note);
+      let resolvedNote = data.note;
+      const journalStatus = getJournaledStatus(notePath);
+      const patchedBody = applyJournalToBody(notePath, resolvedNote.body);
+      resolvedNote = {
+        ...resolvedNote,
+        body: patchedBody,
+        meta: {
+          ...resolvedNote.meta,
+          status: journalStatus || resolvedNote.meta.status,
+        },
+        frontmatter: {
+          ...resolvedNote.frontmatter,
+          status: journalStatus || resolvedNote.frontmatter?.status,
+        },
+      };
+      setNoteData(resolvedNote);
+      setEditContent(resolvedNote.raw || resolvedNote.body);
+      setCachedData("note_" + notePath, resolvedNote);
     } catch (err: any) {
       const cached = getCachedData<any>("note_" + notePath);
       if (cached?.data) {
-        setNoteData(cached.data);
-        setEditContent(cached.data.raw || cached.data.body);
+        let resolvedNote = cached.data;
+        const journalStatus = getJournaledStatus(notePath);
+        const patchedBody = applyJournalToBody(notePath, resolvedNote.body);
+        resolvedNote = {
+          ...resolvedNote,
+          body: patchedBody,
+          meta: {
+            ...resolvedNote.meta,
+            status: journalStatus || resolvedNote.meta.status,
+          },
+          frontmatter: {
+            ...resolvedNote.frontmatter,
+            status: journalStatus || resolvedNote.frontmatter?.status,
+          },
+        };
+        setNoteData(resolvedNote);
+        setEditContent(resolvedNote.raw || resolvedNote.body);
       } else {
         setError(err.message || "Failed to load note");
       }
@@ -282,6 +318,7 @@ export function NoteModal({
     const updatedNote = { ...noteData, body: nextBody };
     setNoteData(updatedNote);
     setCachedData(`note_${currentPath}`, updatedNote);
+    recordTaskMutation(currentPath, line, checked, lineText);
 
     try {
       const res = await fetch("/api/note/task", {
@@ -372,6 +409,8 @@ export function NoteModal({
   // Handle status update (Instant optimistic update + background persistence)
   const handleStatusUpdate = async (nextStatus: string) => {
     if (!currentPath || !noteData) return;
+
+    recordStatusMutation(currentPath, nextStatus);
 
     // Optimistically update status badges immediately
     const oldMeta = noteData.meta;

@@ -62,8 +62,22 @@ export const PUT = handle(async (req: Request) => {
   } else if (key === "status") {
     const v = cleanLine(value, 40).toLowerCase();
     if (!v) throw new HttpError(400, "Bad status");
-    // Allow players to update quest statuses between open, active, resolved
-    if (!ctx.isScribe && note.category !== "quest") throw new HttpError(403, "Only quests status can be changed by players");
+
+    const isOwner =
+      note.owner === ctx.user.character ||
+      note.playerField === ctx.user.name ||
+      ownsCharacterNote(ctx.user, note);
+
+    const canChangeStatus =
+      ctx.isScribe ||
+      note.category === "quest" ||
+      note.category === "npc" ||
+      (note.category === "party" && isOwner);
+
+    if (!canChangeStatus) {
+      throw new HttpError(403, "You do not have permission to change the status of this note");
+    }
+
     await mutateNote(ctx, note.path, (t) => setFrontmatterKey(t, "status", v));
   } else if (key === "archive") {
     // Scribe or note owner can archive directly

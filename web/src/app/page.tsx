@@ -46,6 +46,7 @@ import { CreateNoteModal } from "@/components/CreateNoteModal";
 import { CreateCampaignModal } from "@/components/CreateCampaignModal";
 import { setCachedData, getCachedData } from "@/lib/cache";
 import { getStatusBadge } from "@/lib/statusConfig";
+import { applyJournalToNotes } from "@/lib/mutationJournal";
 
 interface CurrentUser {
   id: string;
@@ -211,16 +212,28 @@ export default function CampaignHub() {
       const res = await fetch("/api/home");
       const data = await res.json();
       if (data.success) {
+        if (data.quests) data.quests = applyJournalToNotes(data.quests);
+        if (data.recent) data.recent = applyJournalToNotes(data.recent);
         setHomeData(data);
         setCachedData("home_dashboard", data);
       } else {
         const cached = getCachedData<HomeData>("home_dashboard");
-        if (cached?.data) setHomeData(cached.data);
+        if (cached?.data) {
+          const c = cached.data;
+          if (c.quests) c.quests = applyJournalToNotes(c.quests);
+          if (c.recent) c.recent = applyJournalToNotes(c.recent);
+          setHomeData(c);
+        }
       }
     } catch (e) {
       console.warn("Loading cached home dashboard", e);
       const cached = getCachedData<HomeData>("home_dashboard");
-      if (cached?.data) setHomeData(cached.data);
+      if (cached?.data) {
+        const c = cached.data;
+        if (c.quests) c.quests = applyJournalToNotes(c.quests);
+        if (c.recent) c.recent = applyJournalToNotes(c.recent);
+        setHomeData(c);
+      }
     }
   }, [currentUser]);
 
@@ -234,13 +247,14 @@ export default function CampaignHub() {
       const res = await fetch(`/api/notes?category=${cat}&archived=1`);
       const data = await res.json();
       if (data.success) {
-        setCategoryNotes(data.notes || []);
-        setCachedData(`cat_${cat}`, data.notes || []);
+        const merged = applyJournalToNotes<NoteMeta>(data.notes || []);
+        setCategoryNotes(merged);
+        setCachedData(`cat_${cat}`, merged);
       }
     } catch (e) {
       console.warn(`Loading cached notes for ${cat}`, e);
       const cached = getCachedData<NoteMeta[]>(`cat_${cat}`);
-      if (cached?.data) setCategoryNotes(cached.data);
+      if (cached?.data) setCategoryNotes(applyJournalToNotes(cached.data));
     } finally {
       setCategoryLoading(false);
     }
@@ -252,13 +266,18 @@ export default function CampaignHub() {
       const res = await fetch("/api/party");
       const data = await res.json();
       if (data.success) {
+        if (data.characters) data.characters = applyJournalToNotes(data.characters);
         setPartyData(data);
         setCachedData("party_data", data);
       }
     } catch (e) {
       console.warn("Loading cached party data", e);
       const cached = getCachedData<any>("party_data");
-      if (cached?.data) setPartyData(cached.data);
+      if (cached?.data) {
+        const c = cached.data;
+        if (c.characters) c.characters = applyJournalToNotes(c.characters);
+        setPartyData(c);
+      }
     }
   }, []);
 
