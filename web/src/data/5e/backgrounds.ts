@@ -1,0 +1,138 @@
+export interface BackgroundDefinition {
+  id: string;
+  name: string;
+  skills: string[];
+  tools?: string[];
+  languages?: number; // number of bonus languages
+  featureName: string;
+  featureDescription: string;
+  startingEquipment: string[];
+  startingGold: number;
+}
+
+export const BACKGROUNDS_5E: Record<string, BackgroundDefinition> = {
+  Acolyte: {
+    id: "acolyte",
+    name: "Acolyte",
+    skills: ["insight", "religion"],
+    languages: 2,
+    featureName: "Shelter of the Faithful",
+    featureDescription: "You and your adventuring companions can expect to receive free healing and care at a temple, shrine, or other established presence of your faith.",
+    startingEquipment: ["Holy symbol", "Prayer book or prayer wheel", "5 sticks of incense", "Vestments", "Common clothes"],
+    startingGold: 15,
+  },
+  "Criminal / Spy": {
+    id: "criminal",
+    name: "Criminal / Spy",
+    skills: ["deception", "stealth"],
+    tools: ["Thieves' tools", "Gaming set"],
+    featureName: "Criminal Contact",
+    featureDescription: "You have a reliable and trustworthy contact who acts as your liaison to a network of other criminals.",
+    startingEquipment: ["Crowbar", "Set of dark common clothes including a hood"],
+    startingGold: 15,
+  },
+  "Folk Hero": {
+    id: "folk_hero",
+    name: "Folk Hero",
+    skills: ["animalHandling", "survival"],
+    tools: ["Artisan's tools", "Vehicles (land)"],
+    featureName: "Rustic Hospitality",
+    featureDescription: "Since you come from the ranks of the common folk, you fit in among them with ease. Commoners will hide you and shield you from the law.",
+    startingEquipment: ["Set of artisan's tools", "Shovel", "Iron pot", "Set of common clothes"],
+    startingGold: 10,
+  },
+  Noble: {
+    id: "noble",
+    name: "Noble",
+    skills: ["history", "persuasion"],
+    tools: ["Gaming set"],
+    languages: 1,
+    featureName: "Position of Privilege",
+    featureDescription: "Thanks to your noble birth, people are inclined to think the best of you. Welcome in high society, and commoners make every effort to accommodate you.",
+    startingEquipment: ["Set of fine clothes", "Signet ring", "Scroll of pedigree"],
+    startingGold: 25,
+  },
+  Sage: {
+    id: "sage",
+    name: "Sage",
+    skills: ["arcana", "history"],
+    languages: 2,
+    featureName: "Researcher",
+    featureDescription: "When you attempt to learn or recall a piece of lore, if you do not know that information, you often know where and from whom you can obtain it.",
+    startingEquipment: ["Bottle of black ink", "Quill", "Small knife", "Letter from dead colleague posing a question you have not yet solved", "Common clothes"],
+    startingGold: 10,
+  },
+  Soldier: {
+    id: "soldier",
+    name: "Soldier",
+    skills: ["athletics", "intimidation"],
+    tools: ["Gaming set", "Vehicles (land)"],
+    featureName: "Military Rank",
+    featureDescription: "You have a military rank from your career as a soldier. Soldiers loyal to your former military organization still recognize your authority and influence.",
+    startingEquipment: ["Insignia of rank", "Trophy taken from a fallen enemy", "Bone dice or deck of cards", "Common clothes"],
+    startingGold: 10,
+  },
+  Charlatan: {
+    id: "charlatan",
+    name: "Charlatan",
+    skills: ["deception", "sleightOfHand"],
+    tools: ["Disguise kit", "Forgery kit"],
+    featureName: "False Identity",
+    featureDescription: "You have created a second identity that includes documentation, established acquaintances, and disguises.",
+    startingEquipment: ["Set of fine clothes", "Disguise kit", "Tools of the con (marked cards, weighted dice, signet rings)"],
+    startingGold: 15,
+  },
+  Entertainer: {
+    id: "entertainer",
+    name: "Entertainer",
+    skills: ["acrobatics", "performance"],
+    tools: ["Disguise kit", "Musical instrument"],
+    featureName: "By Popular Demand",
+    featureDescription: "You can always find a place to perform in any place that features music or drama, securing free food and lodging of modest or comfortable standard.",
+    startingEquipment: ["Musical instrument of your choice", "The favor of an admirer", "Costume clothes"],
+    startingGold: 15,
+  },
+  "Guild Artisan": {
+    id: "guild_artisan",
+    name: "Guild Artisan",
+    skills: ["insight", "persuasion"],
+    tools: ["Artisan's tools"],
+    languages: 1,
+    featureName: "Guild Membership",
+    featureDescription: "As an established member of a guild, you can rely on certain benefits: lodging, support from your guild fellows, and legal representation.",
+    startingEquipment: ["Set of artisan's tools", "Letter of introduction from your guild", "Traveler's clothes"],
+    startingGold: 15,
+  },
+  Hermit: {
+    id: "hermit",
+    name: "Hermit",
+    skills: ["medicine", "religion"],
+    tools: ["Herbalism kit"],
+    languages: 1,
+    featureName: "Discovery",
+    featureDescription: "The quiet seclusion of your extended hermitage gave you access to a unique and powerful discovery—a cosmic truth, ancient secret, or lost site.",
+    startingEquipment: ["Scroll case full of study notes", "Winter blanket", "Set of common clothes", "Herbalism kit"],
+    startingGold: 5,
+  },
+  Outlander: {
+    id: "outlander",
+    name: "Outlander",
+    skills: ["athletics", "survival"],
+    tools: ["Musical instrument"],
+    languages: 1,
+    featureName: "Wanderer",
+    featureDescription: "You have an excellent memory for maps and geography. You can always recall the general layout of terrain and can forage fresh food/water for up to 6 people.",
+    startingEquipment: ["Staff", "Hunting trap", "Trophy from an animal you killed", "Set of traveler's clothes"],
+    startingGold: 10,
+  },
+  Sailor: {
+    id: "sailor",
+    name: "Sailor",
+    skills: ["athletics", "perception"],
+    tools: ["Navigator's tools", "Vehicles (water)"],
+    featureName: "Ship's Passage",
+    featureDescription: "When you need to, you can secure free passage on a sailing ship for yourself and your adventuring companions in exchange for labor.",
+    startingEquipment: ["Belaying pin (club)", "50 feet of silk rope", "Lucky charm", "Set of common clothes"],
+    startingGold: 10,
+  },
+};
