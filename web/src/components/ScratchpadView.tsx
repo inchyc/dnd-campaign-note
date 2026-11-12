@@ -18,6 +18,7 @@ import {
   Clock,
   Copy,
   Check,
+  Download,
 } from "lucide-react";
 import { SessionQuickRef } from "./SessionQuickRef";
 
@@ -100,6 +101,60 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
   const [runAiLoreMaster, setRunAiLoreMaster] = useState(true);
   const [collating, setCollating] = useState(false);
   const [collateResult, setCollateResult] = useState<string | null>(null);
+
+  // Scribe session date changer
+  const [isEditingSessionDate, setIsEditingSessionDate] = useState(false);
+  const [targetSessionDate, setTargetSessionDate] = useState("");
+
+  const handleSetSessionDate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetSessionDate || !isScribe) return;
+    try {
+      const res = await fetch("/api/scribe/collate", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: targetSessionDate }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSessionDate(targetSessionDate);
+        setCollateDate(targetSessionDate);
+        setIsEditingSessionDate(false);
+        showStatus(`Active session updated to ${targetSessionDate}`);
+        fetchScratchpad();
+      } else {
+        alert(data.error || "Failed to update session date");
+      }
+    } catch (err: any) {
+      alert(err.message || "Failed to update session date");
+    }
+  };
+
+  const handleExportMarkdown = (downloadFile = false) => {
+    const linesToExport = activeTab === "mine" ? myLines : tableLines;
+    const title = activeTab === "mine" ? `Scratchpad - ${currentUser?.character || "Player"}` : "Shared Table Feed";
+    const content =
+      `# 📓 ${title} (Session: ${sessionDate || "Active"})\n\n` +
+      linesToExport
+        .map((l) => `- [${l.time}] ${l.author ? `(${l.author}) ` : ""}${l.text}`)
+        .join("\n\n");
+
+    if (downloadFile) {
+      const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Scratchpad_${sessionDate || "session"}_${activeTab}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showStatus("Downloaded scratchpad markdown file!");
+    } else {
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        navigator.clipboard.writeText(content);
+        showStatus("Copied all scratchpad notes to clipboard!");
+      }
+    }
+  };
 
   const fetchScratchpad = useCallback(async () => {
     try {
@@ -278,10 +333,54 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
               <Edit3 className="w-5 h-5 text-amber-400" />
               Live Scratchpad & Table Feed
             </h2>
-            {sessionDate && (
-              <span className="px-2 py-0.5 text-xs font-mono rounded bg-fantasy-800 text-amber-300 border border-fantasy-700 flex items-center gap-1">
-                <Calendar className="w-3 h-3 text-amber-400" /> Session: {sessionDate}
-              </span>
+            {isScribe ? (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTargetSessionDate(sessionDate);
+                    setIsEditingSessionDate(!isEditingSessionDate);
+                  }}
+                  className="px-2 py-0.5 text-xs font-mono rounded bg-fantasy-800 hover:bg-fantasy-700 text-amber-300 border border-fantasy-700 flex items-center gap-1.5 transition shadow-sm"
+                  title="Click to set or advance the active table session date"
+                >
+                  <Calendar className="w-3 h-3 text-amber-400" /> Session: {sessionDate || "Active"}
+                  <span className="text-[10px] text-amber-400 underline">Change</span>
+                </button>
+
+                {isEditingSessionDate && (
+                  <form
+                    onSubmit={handleSetSessionDate}
+                    className="absolute left-0 top-full mt-1.5 p-3 rounded-xl bg-fantasy-850 border border-amber-500/70 shadow-2xl z-50 flex items-center gap-2 animate-in fade-in zoom-in-95 duration-100"
+                  >
+                    <input
+                      type="date"
+                      value={targetSessionDate}
+                      onChange={(e) => setTargetSessionDate(e.target.value)}
+                      className="px-2.5 py-1 text-xs bg-fantasy-900 border border-fantasy-700 rounded text-slate-200 focus:outline-none focus:border-amber-500"
+                    />
+                    <button
+                      type="submit"
+                      className="px-3 py-1 text-xs font-semibold rounded bg-amber-600 hover:bg-amber-500 text-slate-950 transition"
+                    >
+                      Set Date
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingSessionDate(false)}
+                      className="text-xs text-slate-400 hover:text-slate-200 px-1"
+                    >
+                      ✕
+                    </button>
+                  </form>
+                )}
+              </div>
+            ) : (
+              sessionDate && (
+                <span className="px-2 py-0.5 text-xs font-mono rounded bg-fantasy-800 text-amber-300 border border-fantasy-700 flex items-center gap-1">
+                  <Calendar className="w-3 h-3 text-amber-400" /> Session: {sessionDate}
+                </span>
+              )
             )}
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
@@ -290,6 +389,26 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Backup / Export Actions */}
+          <div className="flex items-center gap-1 bg-fantasy-900 border border-fantasy-700 rounded-lg p-0.5">
+            <button
+              type="button"
+              onClick={() => handleExportMarkdown(false)}
+              className="p-1.5 rounded text-slate-400 hover:text-amber-300 hover:bg-fantasy-800 transition"
+              title="Copy all notes for this session to clipboard (Obsidian Markdown)"
+            >
+              <Copy className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleExportMarkdown(true)}
+              className="p-1.5 rounded text-slate-400 hover:text-emerald-300 hover:bg-fantasy-800 transition"
+              title="Download scratchpad notes as .md file (Emergency Backup)"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
           <button
             type="button"
             onClick={fetchScratchpad}
@@ -422,7 +541,13 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
         <textarea
           value={newNoteText}
           onChange={(e) => setNewNoteText(e.target.value)}
-          placeholder={`Add a quick note or observation as ${currentUser?.character || "Adventurer"}...`}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+              e.preventDefault();
+              handleAddNote(e);
+            }
+          }}
+          placeholder={`Add a quick note or observation as ${currentUser?.character || "Adventurer"}... (Ctrl+Enter to save)`}
           rows={3}
           className="w-full p-3 text-sm bg-fantasy-850 border border-fantasy-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500"
         />
@@ -439,14 +564,17 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
             </span>
           </label>
 
-          <button
-            type="submit"
-            disabled={submitting || !newNoteText.trim()}
-            className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-amber-600 hover:bg-amber-500 text-slate-950 flex items-center gap-1.5 disabled:opacity-50 transition shadow"
-          >
-            {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-            Save Note
-          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-slate-500 hidden sm:inline font-mono">Ctrl + Enter</span>
+            <button
+              type="submit"
+              disabled={submitting || !newNoteText.trim()}
+              className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-amber-600 hover:bg-amber-500 text-slate-950 flex items-center gap-1.5 disabled:opacity-50 transition shadow"
+            >
+              {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+              Save Note
+            </button>
+          </div>
         </div>
       </form>
 
