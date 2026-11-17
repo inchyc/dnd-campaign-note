@@ -119,7 +119,7 @@ try {
 }
 
 const cache = new Map<string, { at: number; notes: IndexedNote[] }>();
-const TTL = 10 * 60 * 1000; // 10 minutes cache
+const TTL = 3 * 1000; // short TTL: serverless instances do not share invalidation
 
 export function invalidateIndex(campaignId: string) {
   cache.delete(campaignId);

@@ -1,6 +1,6 @@
 ---
 title: The Blue Creature's Intel Review the description of Harcon's strong nature and his link to the Vanguardcite 1
-status: done
+status: resolved
 priority: normal
 scheduled: 2026-05-02
 dateCreated: 2026-05-02T21:12:42.949+10:00

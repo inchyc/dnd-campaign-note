@@ -215,6 +215,20 @@ async function pushSingleFile(relPath) {
 
   try {
     const record = buildRecordFromLocal(normalizedRel, fullPath);
+    // Safety: skip identical content; never silently overwrite a cloud copy that changed after this file.
+    const { data: cloud } = await supabase
+      .from("notes")
+      .select("raw_content,mtime")
+      .eq("campaign_id", campaignId)
+      .eq("path", normalizedRel)
+      .maybeSingle();
+    if (cloud) {
+      if (cloud.raw_content === record.raw_content) return false;
+      if (Number(cloud.mtime) > record.mtime + 500) {
+        console.warn(`[Sync Skip] Cloud copy of ${normalizedRel} is newer than local; not overwriting.`);
+        return false;
+      }
+    }
     const { error } = await supabase.from("notes").upsert(record, {
       onConflict: "campaign_id,path",
     });

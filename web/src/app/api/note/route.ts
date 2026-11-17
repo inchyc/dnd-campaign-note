@@ -48,24 +48,27 @@ export const GET = handle(async (req: Request) => {
   }
 
   const body = displayText(parsed.content);
-  return Response.json({
-    success: true,
-    note: {
-      meta: {
-        ...toMeta(note),
-        status: fm.status ? String(fm.status) : note.status,
-        priority: fm.priority ? String(fm.priority) : note.priority,
+  return Response.json(
+    {
+      success: true,
+      note: {
+        meta: {
+          ...toMeta(note),
+          status: fm.status ? String(fm.status) : note.status,
+          priority: fm.priority ? String(fm.priority) : note.priority,
+        },
+        frontmatter,
+        body,
+        links: resolveLinks(body, map),
+        backlinks: backlinksFor(note, visible, map),
+        canEdit: editable,
+        canPlayerNote: ["npc", "location", "lore"].includes(note.category),
+        mtime: await ctx.storage.mtime(note.path).catch(() => note.mtime),
+        raw: editable ? raw : undefined,
       },
-      frontmatter,
-      body,
-      links: resolveLinks(body, map),
-      backlinks: backlinksFor(note, visible, map),
-      canEdit: editable,
-      canPlayerNote: ["npc", "location", "lore"].includes(note.category),
-      mtime: await ctx.storage.mtime(note.path).catch(() => note.mtime),
-      raw: editable ? raw : undefined,
     },
-  });
+    { headers: { "Cache-Control": "no-store" } }
+  );
 });
 
 /** Full-note save (Scribe: any note; players: their own character note). */

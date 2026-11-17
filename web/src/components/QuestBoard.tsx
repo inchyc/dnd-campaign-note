@@ -17,6 +17,8 @@ import {
   X,
   Loader2,
 } from "lucide-react";
+import { useFeedback } from "./FeedbackContext";
+import { normalizeQuestStatus, type QuestBucket } from "@/lib/questStatus";
 
 export interface QuestMeta {
   path: string;
@@ -40,12 +42,8 @@ interface QuestBoardProps {
   onRefresh?: () => void;
 }
 
-export function questBucket(status?: string): "open" | "active" | "resolved" | "archived" {
-  const s = (status || "").toLowerCase();
-  if (/(archived|archive)/.test(s)) return "archived";
-  if (/(complete|resolved|solved|closed|done)/.test(s)) return "resolved";
-  if (/(active|progress|ongoing|investigating)/.test(s)) return "active";
-  return "open";
+export function questBucket(status?: string): QuestBucket {
+  return normalizeQuestStatus(status);
 }
 
 export function QuestBoard({
@@ -56,6 +54,7 @@ export function QuestBoard({
   onStatusChange,
   onRefresh,
 }: QuestBoardProps) {
+  const { toast } = useFeedback();
   const [filterPriority, setFilterPriority] = useState<string>("all");
   const [viewTab, setViewTab] = useState<"board" | "archived">("board");
   const [isNewQuestOpen, setIsNewQuestOpen] = useState(false);
@@ -129,7 +128,7 @@ export function QuestBoard({
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        alert(data.error || "Failed to create quest");
+        toast(data.error || "Failed to create quest", { type: "error" });
         return;
       }
       setNewTitle("");
@@ -137,8 +136,9 @@ export function QuestBoard({
       setNewPriority("normal");
       setIsNewQuestOpen(false);
       if (onRefresh) onRefresh();
+      toast("Quest added to board", { type: "success" });
     } catch (err: any) {
-      alert("Error creating quest: " + err.message);
+      toast("Error creating quest: " + err.message, { type: "error" });
     } finally {
       setIsSubmitting(false);
     }
@@ -178,19 +178,19 @@ export function QuestBoard({
         });
         const data = await res.json();
         if (data.archived) {
-          alert("Consensus reached: Quest has been moved to Archive!");
+          toast("Consensus reached: Quest moved to Archive!", { type: "success" });
         } else {
-          alert(`Your vote to archive '${quest.title}' has been registered (${data.votes || 1}/2 votes needed).`);
+          toast(`Archive vote registered for '${quest.title}' (${data.votes || 1}/2 votes needed).`, { type: "info" });
         }
         if (onRefresh) onRefresh();
       }
     } catch (e: any) {
-      alert("Failed to process archive: " + e.message);
+      toast("Failed to process archive: " + e.message, { type: "error" });
     }
   };
 
   const handleRestoreQuest = async (path: string) => {
-    await handleStatusUpdate(path, "open");
+    await handleStatusUpdate(path, "active");
   };
 
   return (

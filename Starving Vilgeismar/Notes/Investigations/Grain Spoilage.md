@@ -1,7 +1,7 @@
 ---
 type: Investigation
 priority: 🔴 High
-status: Completed
+status: resolved
 lead: Sigmund
 summary: Defeated "Grain Monster" in vaults; sang Hymn of Death to win.
 created: 2026-04-30T20:59

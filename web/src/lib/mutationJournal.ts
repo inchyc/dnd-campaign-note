@@ -90,9 +90,19 @@ export function recordTaskMutation(
 /**
  * Get the recorded status for a note, if any.
  */
-export function getJournaledStatus(path: string): string | undefined {
+const STATUS_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** A journal entry is only valid until the server has a newer write or it expires. */
+function liveStatusEntry(entry: NoteStatusMutation | undefined, serverMtime?: number) {
+  if (!entry) return undefined;
+  if (Date.now() - entry.timestamp > STATUS_TTL_MS) return undefined;
+  if (serverMtime && serverMtime > entry.timestamp) return undefined;
+  return entry;
+}
+
+export function getJournaledStatus(path: string, serverMtime?: number): string | undefined {
   const journal = getStoredJournal();
-  return journal.statuses[path]?.status;
+  return liveStatusEntry(journal.statuses[path], serverMtime)?.status;
 }
 
 /**
@@ -128,12 +138,12 @@ export function applyJournalToBody(path: string, body: string): string {
 /**
  * Overlays journaled statuses onto a list of notes.
  */
-export function applyJournalToNotes<T extends { path: string; status?: string }>(notes: T[]): T[] {
+export function applyJournalToNotes<T extends { path: string; status?: string; mtime?: number }>(notes: T[]): T[] {
   if (!notes || notes.length === 0) return notes;
   const journal = getStoredJournal();
 
   return notes.map((note): T => {
-    const override = journal.statuses[note.path];
+    const override = liveStatusEntry(journal.statuses[note.path], note.mtime);
     if (override && override.status) {
       return {
         ...note,

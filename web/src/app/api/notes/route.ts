@@ -20,7 +20,10 @@ export const GET = handle(async (req: Request) => {
     if (archivedMode === "all" || archivedMode === "1") return true; // Returns both active and archived so UI views can partition them
     return !isArchived; // default: only active
   });
-  return Response.json({ success: true, notes: notes.map(toMeta) });
+  return Response.json(
+    { success: true, notes: notes.map(toMeta) },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 });
 
 /** Search across titles and bodies of notes the caller is allowed to see. */

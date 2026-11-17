@@ -29,6 +29,9 @@ import {
   Skull,
 } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
+import { WikiLinkTextarea } from "./WikiLinkTextarea";
+import { useFeedback } from "./FeedbackContext";
+import { normalizeQuestStatus } from "@/lib/questStatus";
 import { getCachedData, setCachedData } from "@/lib/cache";
 import { getCategoryStatuses, getStatusBadge } from "@/lib/statusConfig";
 import {
@@ -75,13 +78,7 @@ interface NoteData {
   raw?: string;
 }
 
-function questBucket(status?: string): "open" | "active" | "resolved" | "archived" {
-  const s = (status || "").toLowerCase();
-  if (/(archived|archive)/.test(s)) return "archived";
-  if (/(complete|resolved|solved|closed|done)/.test(s)) return "resolved";
-  if (/(active|progress|ongoing|investigating)/.test(s)) return "active";
-  return "open";
-}
+const questBucket = normalizeQuestStatus;
 
 export function NoteModal({
   path,
@@ -105,7 +102,9 @@ export function NoteModal({
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
 
   // Edit mode state
+  const { toast, confirm: confirmDialog } = useFeedback();
   const [editContent, setEditContent] = useState("");
+  const [editViewMode, setEditViewMode] = useState<"write" | "split" | "preview">("write");
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
@@ -127,7 +126,7 @@ export function NoteModal({
         throw new Error(data.error || "Failed to load note");
       }
       let resolvedNote = data.note;
-      const journalStatus = getJournaledStatus(notePath);
+      const journalStatus = getJournaledStatus(notePath, resolvedNote.mtime);
       const patchedBody = applyJournalToBody(notePath, resolvedNote.body);
       resolvedNote = {
         ...resolvedNote,
@@ -232,9 +231,13 @@ export function NoteModal({
   // Navigate to another note within the modal (updates history stack)
   const handleInternalNavigate = async (target: string) => {
     if (isDirty()) {
-      if (!confirm("You have unsubmitted changes. Discard and proceed to " + target + "?")) {
-        return;
-      }
+      const ok = await confirmDialog({
+        title: "Discard Unsaved Changes?",
+        message: `You have unsubmitted changes. Discard them and open "${target}"?`,
+        confirmLabel: "Discard & Open",
+        destructive: true,
+      });
+      if (!ok) return;
     }
     // Search or find target path
     let targetPath = target;
@@ -249,7 +252,7 @@ export function NoteModal({
         if (data.results?.length > 0) {
           targetPath = data.results[0].meta.path;
         } else {
-          alert(`Note not found: ${target}`);
+          toast(`Note not found: ${target}`, { type: "warning" });
           return;
         }
       } catch {
@@ -269,7 +272,13 @@ export function NoteModal({
   const handleGoBack = async () => {
     if (historyIndex > 0) {
       if (isDirty()) {
-        if (!confirm("You have unsubmitted changes. Discard and go back?")) return;
+        const ok = await confirmDialog({
+          title: "Discard Unsaved Changes?",
+          message: "You have unsubmitted changes. Discard and go back?",
+          confirmLabel: "Discard",
+          destructive: true,
+        });
+        if (!ok) return;
       }
       const prevPath = historyStack[historyIndex - 1];
       setHistoryIndex((idx) => idx - 1);
@@ -283,7 +292,13 @@ export function NoteModal({
   const handleGoForward = async () => {
     if (historyIndex < historyStack.length - 1) {
       if (isDirty()) {
-        if (!confirm("You have unsubmitted changes. Discard and go forward?")) return;
+        const ok = await confirmDialog({
+          title: "Discard Unsaved Changes?",
+          message: "You have unsubmitted changes. Discard and go forward?",
+          confirmLabel: "Discard",
+          destructive: true,
+        });
+        if (!ok) return;
       }
       const nextPath = historyStack[historyIndex + 1];
       setHistoryIndex((idx) => idx + 1);
@@ -329,13 +344,13 @@ export function NoteModal({
       const data = await res.json();
       if (!res.ok) {
         setNoteData({ ...noteData, body: oldBody });
-        alert(data.error || "Failed to toggle task");
+        toast(data.error || "Failed to toggle task", { type: "error" });
         return;
       }
       if (onNoteUpdated) onNoteUpdated();
     } catch {
       setNoteData({ ...noteData, body: oldBody });
-      alert("Network error updating task");
+      toast("Network error updating task", { type: "error" });
     }
   };
 
@@ -360,13 +375,13 @@ export function NoteModal({
       const data = await res.json();
       if (!res.ok) {
         setNoteData({ ...noteData, body: oldBody });
-        alert(data.error || "Failed to add task");
+        toast(data.error || "Failed to add task", { type: "error" });
         return;
       }
       if (onNoteUpdated) onNoteUpdated();
     } catch {
       setNoteData({ ...noteData, body: oldBody });
-      alert("Network error adding task");
+      toast("Network error adding task", { type: "error" });
     }
   };
 
@@ -394,13 +409,13 @@ export function NoteModal({
       const data = await res.json();
       if (!res.ok) {
         setNoteData({ ...noteData, body: oldBody });
-        alert(data.error || "Failed to add follow-up task");
+        toast(data.error || "Failed to add follow-up task", { type: "error" });
         return;
       }
       if (onNoteUpdated) onNoteUpdated();
     } catch {
       setNoteData({ ...noteData, body: oldBody });
-      alert("Network error adding task");
+      toast("Network error adding task", { type: "error" });
     } finally {
       setIsAddingFollowup(false);
     }
@@ -434,11 +449,11 @@ export function NoteModal({
       } else {
         setNoteData({ ...noteData, meta: oldMeta, frontmatter: oldFm });
         const data = await res.json();
-        alert(data.error || "Failed to update status");
+        toast(data.error || "Failed to update status", { type: "error" });
       }
     } catch {
       setNoteData({ ...noteData, meta: oldMeta, frontmatter: oldFm });
-      alert("Network error updating status");
+      toast("Network error updating status", { type: "error" });
     }
   };
 
@@ -458,10 +473,11 @@ export function NoteModal({
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.error || "Failed to save note");
+        toast(data.error || "Failed to save note", { type: "error" });
         return;
       }
       setSaveSuccess(true);
+      toast("Note saved", { type: "success" });
       setTimeout(() => setSaveSuccess(false), 2500);
       await fetchNote(currentPath);
       setActiveTab("read");
@@ -486,9 +502,10 @@ export function NoteModal({
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.error || "Failed to add player note");
+        toast(data.error || "Failed to add player note", { type: "error" });
         return;
       }
+      toast("Player note appended", { type: "success" });
       setPlayerNoteText("");
       await fetchNote(currentPath);
       setActiveTab("read");
@@ -540,14 +557,20 @@ export function NoteModal({
     if (!currentPath) return;
     try {
       if (isScribe || noteData?.canEdit) {
-        if (!confirm("Are you sure you want to archive this note?")) return;
+        const ok = await confirmDialog({
+          title: "Archive Note?",
+          message: "Are you sure you want to move this note to the Archive?",
+          confirmLabel: "Archive",
+          destructive: true,
+        });
+        if (!ok) return;
         const res = await fetch("/api/note/meta", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ path: currentPath, key: "archive", value: true }),
         });
         if (res.ok) {
-          alert("Note has been archived.");
+          toast("Note has been archived.", { type: "success" });
           handleForceClose();
           if (onNoteUpdated) onNoteUpdated();
         }
@@ -559,16 +582,16 @@ export function NoteModal({
         });
         const data = await res.json();
         if (data.archived) {
-          alert("Consensus reached: Note has been moved to Archive!");
+          toast("Consensus reached: Note moved to Archive!", { type: "success" });
           handleForceClose();
           if (onNoteUpdated) onNoteUpdated();
         } else {
-          alert(`Your vote to archive has been recorded (${data.votes || 1}/2 votes needed).`);
+          toast(`Archive vote recorded (${data.votes || 1}/2 votes needed).`, { type: "info" });
           await fetchNote(currentPath);
         }
       }
     } catch (e: any) {
-      alert("Failed to archive: " + e.message);
+      toast("Failed to archive: " + e.message, { type: "error" });
     }
   };
 
@@ -905,7 +928,7 @@ export function NoteModal({
 
                     if (key === "status") {
                       if (categoryStatuses.length === 0) return null;
-                      const curVal = String(value || "").toLowerCase();
+                      const curVal = noteData.meta.category === "quest" ? normalizeQuestStatus(String(value || "")) : String(value || "").toLowerCase();
                       const matched = categoryStatuses.find((o) => o.value === curVal) || categoryStatuses[0];
                       return (
                         <div
@@ -984,21 +1007,63 @@ export function NoteModal({
               {/* TAB 2: Edit Markdown */}
               {activeTab === "edit" && noteData.canEdit && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Editing Obsidian Markdown directly. Frontmatter and notes will be preserved.</span>
-                    {saveSuccess && (
-                      <span className="text-emerald-400 flex items-center gap-1">
-                        <CheckCircle className="w-3.5 h-3.5" /> Saved successfully
-                      </span>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+                    <span>
+                      Type <kbd className="px-1.5 py-0.5 rounded bg-fantasy-800 border border-fantasy-700 font-mono text-amber-300">[[</kbd> to link any note.
+                    </span>
+                    <div className="flex items-center gap-3">
+                      {saveSuccess && (
+                        <span className="text-emerald-400 flex items-center gap-1">
+                          <CheckCircle className="w-3.5 h-3.5" /> Saved
+                        </span>
+                      )}
+                      <div className="inline-flex rounded-lg bg-fantasy-900 border border-fantasy-700 p-0.5">
+                        {(["write", "split", "preview"] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => setEditViewMode(mode)}
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold capitalize transition ${
+                              editViewMode === mode
+                                ? "bg-amber-600 text-slate-950 shadow"
+                                : "text-slate-400 hover:text-slate-200"
+                            } ${mode === "split" ? "hidden sm:inline-block" : ""}`}
+                          >
+                            {mode}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className={
+                      editViewMode === "split"
+                        ? "grid grid-cols-1 sm:grid-cols-2 gap-4 items-stretch"
+                        : "block"
+                    }
+                  >
+                    {editViewMode !== "preview" && (
+                      <WikiLinkTextarea
+                        value={editContent}
+                        onChange={setEditContent}
+                        rows={18}
+                        className="w-full p-4 font-mono text-sm bg-fantasy-900 border border-fantasy-700 rounded-lg text-slate-200 focus:outline-none focus:border-amber-500 resize-y"
+                        placeholder="Type Obsidian Markdown... Use [[ to link notes."
+                      />
+                    )}
+                    {editViewMode !== "write" && (
+                      <div className="p-4 rounded-lg bg-fantasy-900/70 border border-fantasy-700/80 max-h-[460px] overflow-y-auto">
+                        <MarkdownView
+                          content={editContent.replace(/^---[\s\S]*?---\s*/, "")}
+                          filePath={noteData.meta.path}
+                          onNavigate={handleInternalNavigate}
+                          readOnly
+                        />
+                      </div>
                     )}
                   </div>
-                  <textarea
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    rows={18}
-                    className="w-full p-4 font-mono text-sm bg-fantasy-900 border border-fantasy-700 rounded-lg text-slate-200 focus:outline-none focus:border-amber-500 resize-y"
-                    placeholder="Type Obsidian Markdown..."
-                  />
+
                   <div className="flex items-center justify-end gap-3 pt-2">
                     <button
                       type="button"
@@ -1031,11 +1096,11 @@ export function NoteModal({
                     <div className="mt-1 font-mono text-slate-300">
                       - **{currentUser?.name || "Player"} ({currentUser?.character || "PC"})** · {new Date().toISOString().slice(0, 10)}: ...
                     </div>
-                    It will never modify or overwrite DM descriptions.
+                    It will never modify or overwrite DM descriptions. Type <kbd className="px-1 py-0.5 rounded bg-fantasy-800 border border-fantasy-700 font-mono text-amber-300">[[</kbd> to link notes.
                   </div>
-                  <textarea
+                  <WikiLinkTextarea
                     value={playerNoteText}
-                    onChange={(e) => setPlayerNoteText(e.target.value)}
+                    onChange={setPlayerNoteText}
                     rows={6}
                     placeholder="Add observations, rumors heard, leads, or personal thoughts about this person, place, or lore..."
                     className="w-full p-4 text-sm bg-fantasy-900 border border-fantasy-700 rounded-lg text-slate-200 focus:outline-none focus:border-amber-500"

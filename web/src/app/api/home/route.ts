@@ -1,15 +1,11 @@
 import { handle, loadUsers, requireCtx } from "@/lib/auth";
 import { currentSession } from "@/lib/scratch";
+import { normalizeQuestStatus } from "@/lib/questStatus";
 import { loadIndex, ownsCharacterNote, toMeta, visibleNotes } from "@/lib/vault";
 
 export const dynamic = "force-dynamic";
 
-function questBucket(status?: string): "open" | "active" | "resolved" {
-  const s = (status || "").toLowerCase();
-  if (/(complete|resolved|solved|closed|done)/.test(s)) return "resolved";
-  if (/(active|progress|ongoing|investigating)/.test(s)) return "active";
-  return "open";
-}
+const questBucket = normalizeQuestStatus;
 
 function cleanPriority(p?: string): string {
   const s = (p || "").replace(/[^a-zA-Z]/g, "").toLowerCase();
@@ -65,5 +61,8 @@ export const GET = handle(async () => {
     .slice(0, 6)
     .map(toMeta);
 
-  return Response.json({ success: true, recap, quests, roster, recent, session: await currentSession(ctx) });
+  return Response.json(
+    { success: true, recap, quests, roster, recent, session: await currentSession(ctx) },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 });

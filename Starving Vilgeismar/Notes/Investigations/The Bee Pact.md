@@ -1,7 +1,7 @@
 ---
 type: Investigation
 priority: 🟡 Med
-status: Completed
+status: resolved
 lead: Valcara
 summary: Valcara claims a pact to harvest the dead; found bodies in garden.
 created: 2026-04-30T21:01
