@@ -1,6 +1,115 @@
 import { CLASSES_5E } from "./classes";
 import { ARMOR_5E, WEAPONS_5E } from "./equipment";
 
+export const STANDARD_ARRAY = [15, 14, 13, 12, 10, 8] as const;
+
+export const POINT_BUY_COST_TABLE: Record<number, { cost: number; nextCost?: number }> = {
+  8: { cost: 0, nextCost: 1 },
+  9: { cost: 1, nextCost: 1 },
+  10: { cost: 2, nextCost: 1 },
+  11: { cost: 3, nextCost: 1 },
+  12: { cost: 4, nextCost: 1 },
+  13: { cost: 5, nextCost: 2 },
+  14: { cost: 7, nextCost: 2 },
+  15: { cost: 9 },
+};
+
+export const PACK_CONTENTS: Record<string, string[]> = {
+  "Dungeoneer's Pack": [
+    "Backpack",
+    "Crowbar",
+    "Hammer",
+    "10 Pitons",
+    "10 Torches",
+    "Tinderbox",
+    "10 Days of Rations",
+    "Waterskin",
+    "50 ft Hempen Rope",
+  ],
+  "Explorer's Pack": [
+    "Backpack",
+    "Bedroll",
+    "Mess Kit",
+    "Tinderbox",
+    "10 Torches",
+    "10 Days of Rations",
+    "Waterskin",
+    "50 ft Hempen Rope",
+  ],
+  "Priest's Pack": [
+    "Backpack",
+    "Blanket",
+    "10 Candles",
+    "Tinderbox",
+    "Alms Box",
+    "2 Blocks of Incense",
+    "Censer",
+    "Vestments",
+    "2 Days of Rations",
+    "Waterskin",
+  ],
+  "Burglar's Pack": [
+    "Backpack",
+    "Bag of 1,000 Ball Bearings",
+    "10 ft String",
+    "Bell",
+    "5 Candles",
+    "Crowbar",
+    "Hammer",
+    "10 Pitons",
+    "Hooded Lantern",
+    "2 Flasks of Oil",
+    "5 Days of Rations",
+    "Tinderbox",
+    "Waterskin",
+    "50 ft Hempen Rope",
+  ],
+  "Diplomat's Pack": [
+    "Chest",
+    "2 Cases for Maps and Scrolls",
+    "Set of Fine Clothes",
+    "Bottle of Ink",
+    "Ink Pen",
+    "Lamp",
+    "2 Flasks of Oil",
+    "5 Sheets of Paper",
+    "Vial of Perfume",
+    "Sealing Wax",
+    "Soap",
+  ],
+  "Entertainer's Pack": [
+    "Backpack",
+    "Bedroll",
+    "2 Costumes",
+    "5 Candles",
+    "5 Days of Rations",
+    "Waterskin",
+    "Disguise Kit",
+  ],
+  "Scholar's Pack": [
+    "Backpack",
+    "Book of Lore",
+    "Bottle of Ink",
+    "Ink Pen",
+    "10 Sheets of Parchment",
+    "Little Bag of Sand",
+    "Small Knife",
+  ],
+  "Monster Hunter's Pack": [
+    "Chest",
+    "Crowbar",
+    "Hammer",
+    "3 Wooden Stakes",
+    "Holy Symbol",
+    "Flask of Holy Water",
+    "Set of Manacles",
+    "Steel Mirror",
+    "Flask of Oil",
+    "Tinderbox",
+    "3 Torches",
+  ],
+};
+
 export function calcModifier(score: number): number {
   return Math.floor(((score || 10) - 10) / 2);
 }
@@ -15,17 +124,7 @@ export function calcProficiencyBonus(totalLevel: number): number {
 }
 
 export function calcPointBuyCost(score: number): number {
-  const costs: Record<number, number> = {
-    8: 0,
-    9: 1,
-    10: 2,
-    11: 3,
-    12: 4,
-    13: 5,
-    14: 7,
-    15: 9,
-  };
-  return costs[score] ?? 0;
+  return POINT_BUY_COST_TABLE[score]?.cost ?? 0;
 }
 
 export function roll4d6DropLowest(): { total: number; rolls: number[]; dropped: number } {
@@ -42,6 +141,67 @@ export function roll4d6DropLowest(): { total: number; rolls: number[]; dropped: 
   return { total, rolls, dropped };
 }
 
+export function calculateTotalHitPoints(
+  classes: Array<{ className: string; level: number }>,
+  conModifier: number,
+  options?: {
+    hpMode?: "average" | "roll";
+    rolledHpByLevel?: Record<string, number[]>;
+    isHillDwarf?: boolean;
+    hasToughFeat?: boolean;
+    isDraconicSorcerer?: boolean;
+  }
+): { hpMax: number; breakdown: string } {
+  if (!classes || classes.length === 0) {
+    return { hpMax: 10 + conModifier, breakdown: `Base 10 + CON (${conModifier})` };
+  }
+
+  let totalHp = 0;
+  const parts: string[] = [];
+  const totalLevel = classes.reduce((sum, c) => sum + (c.level || 0), 0) || 1;
+
+  classes.forEach((cEntry, classIdx) => {
+    const cls = CLASSES_5E[cEntry.className];
+    const hitDieNum = parseInt(cls?.hitDie?.replace("d", "") || "10", 10) || 10;
+    const avgGain = Math.floor(hitDieNum / 2) + 1;
+
+    for (let lvl = 1; lvl <= cEntry.level; lvl++) {
+      if (classIdx === 0 && lvl === 1) {
+        // First character level gets maximum hit die
+        const base = hitDieNum + conModifier;
+        totalHp += Math.max(1, base);
+        parts.push(`Lv 1 ${cEntry.className}: max ${hitDieNum} + CON (${conModifier}) = ${Math.max(1, base)}`);
+      } else {
+        let rolledVal = avgGain;
+        if (options?.hpMode === "roll" && options?.rolledHpByLevel?.[cEntry.className]?.[lvl - 2]) {
+          rolledVal = options.rolledHpByLevel[cEntry.className][lvl - 2];
+        }
+        const base = rolledVal + conModifier;
+        totalHp += Math.max(1, base);
+        parts.push(`Lv ${lvl} ${cEntry.className}: ${rolledVal} + CON (${conModifier}) = ${Math.max(1, base)}`);
+      }
+    }
+  });
+
+  if (options?.isHillDwarf) {
+    totalHp += totalLevel;
+    parts.push(`Hill Dwarf: +${totalLevel} HP`);
+  }
+  if (options?.isDraconicSorcerer) {
+    const sorcLevel = classes.find((c) => c.className === "Sorcerer")?.level || 0;
+    if (sorcLevel > 0) {
+      totalHp += sorcLevel;
+      parts.push(`Draconic Resilience: +${sorcLevel} HP`);
+    }
+  }
+  if (options?.hasToughFeat) {
+    totalHp += totalLevel * 2;
+    parts.push(`Tough Feat: +${totalLevel * 2} HP`);
+  }
+
+  return { hpMax: Math.max(1, totalHp), breakdown: parts.join("; ") };
+}
+
 export function checkMulticlassPrereqs(
   className: string,
   stats: { str: number; dex: number; con: number; int: number; wis: number; cha: number }
@@ -50,7 +210,6 @@ export function checkMulticlassPrereqs(
   if (!cls) return { allowed: true, missing: [] };
 
   const missing: string[] = [];
-  // Fighter special rule: STR 13 OR DEX 13
   if (className === "Fighter") {
     if (stats.str < 13 && stats.dex < 13) {
       missing.push("STR 13 or DEX 13");
@@ -142,7 +301,8 @@ export function calculateArmorClass(
   equippedArmor?: { name: string; baseAc: number; category: string; maxDexMod?: number; stealthDisadvantage?: boolean; magicBonus?: number },
   equippedShield?: { name: string; baseAc: number; magicBonus?: number },
   magicBonuses: number = 0,
-  overrideAc?: number
+  overrideAc?: number,
+  customLineageOrRace?: string
 ): ArmorCalculationResult {
   if (overrideAc && overrideAc > 0) {
     return { ac: overrideAc, formula: "Custom Manual Override", hasStealthDisadvantage: false };
@@ -159,7 +319,11 @@ export function calculateArmorClass(
 
   const primaryClass = classes[0]?.className;
 
-  if (equippedArmor) {
+  if (customLineageOrRace === "Tortle") {
+    // Tortle natural armor is flat 17, shields apply
+    base = 17;
+    formula = "Tortle Natural Armor (17)";
+  } else if (equippedArmor) {
     hasStealthDisadvantage = !!equippedArmor.stealthDisadvantage;
     const magic = equippedArmor.magicBonus || 0;
 

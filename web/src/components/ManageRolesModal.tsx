@@ -13,8 +13,10 @@ import {
   RefreshCw,
   UserCheck,
   Plus,
+  Trash2,
 } from "lucide-react";
 import { JoinCampaignModal } from "./JoinCampaignModal";
+import { useFeedback } from "./FeedbackContext";
 
 interface UserItem {
   id: string;
@@ -38,6 +40,7 @@ export function ManageRolesModal({
   currentUserId,
   onRolesUpdated,
 }: ManageRolesModalProps) {
+  const { confirm: confirmDialog } = useFeedback();
   const [users, setUsers] = useState<UserItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -233,6 +236,45 @@ export function ManageRolesModal({
                           <span>Make Scribe</span>
                         </>
                       )}
+                    </button>
+
+                    {/* Delete Player Button */}
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = await confirmDialog({
+                          title: `Remove ${u.character}?`,
+                          message: `Are you sure you want to delete ${u.character} (${u.name})? This will remove them from the campaign and archive their character note.`,
+                          confirmLabel: "Remove Player",
+                          destructive: true,
+                        });
+                        if (!ok) return;
+                        setUpdatingId(u.id);
+                        try {
+                          const res = await fetch(`/api/campaigns/${campaignId}/users`, {
+                            method: "DELETE",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ userId: u.id }),
+                          });
+                          const data = await res.json();
+                          if (!res.ok || !data.success) {
+                            setErrorMsg(data.error || "Failed to delete user");
+                            return;
+                          }
+                          const nextUsers = users.filter((usr) => usr.id !== u.id);
+                          setUsers(nextUsers);
+                          if (onRolesUpdated) onRolesUpdated(nextUsers);
+                        } catch (err: any) {
+                          setErrorMsg(err.message || "Failed to delete user");
+                        } finally {
+                          setUpdatingId(null);
+                        }
+                      }}
+                      disabled={isUpdating || isYou}
+                      title={isYou ? "Cannot delete yourself from roster management" : "Delete this character from campaign"}
+                      className="p-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-red-400 hover:bg-red-950/40 border border-transparent hover:border-red-700/60 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>

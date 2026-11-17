@@ -1,4 +1,4 @@
-import { HttpError, handle, requireCtx } from "@/lib/auth";
+import { HttpError, handle, loadUsers, requireCtx } from "@/lib/auth";
 import { setFrontmatterKey } from "@/lib/vault";
 
 export const dynamic = "force-dynamic";
@@ -93,6 +93,7 @@ export interface CharacterSheetData {
 
   race: string;
   subrace?: string;
+  customLineage?: boolean;
   background: string;
   alignment: string;
   xp: number;
@@ -135,6 +136,12 @@ export interface CharacterSheetData {
 
   // Skills: 0 = none, 1 = proficient, 2 = expertise
   skills: Record<string, number>;
+
+  // Proficiencies & Languages
+  languages?: string[];
+  toolProficiencies?: string[];
+  armorProficiencies?: string[];
+  weaponProficiencies?: string[];
 
   // Attacks
   attacks: Array<{
@@ -180,140 +187,115 @@ export interface CharacterSheetData {
   updatedAt: number;
 }
 
-const DEFAULT_SHEET = (userId: string, character: string, name: string): CharacterSheetData => ({
-  userId,
-  name,
-  character,
-  class: "Fighter",
-  subclass: "Champion",
-  level: 1,
-  classes: [{ className: "Fighter", subclass: "Champion", level: 1, hitDie: "d10" }],
-  race: "Human",
-  background: "Soldier",
-  alignment: "Neutral Good",
-  xp: 0,
-  inspiration: false,
-  stats: {
-    str: 15,
-    dex: 14,
-    con: 14,
-    int: 10,
-    wis: 12,
-    cha: 8,
-  },
-  savingThrows: {
-    str: true,
-    con: true,
-  },
-  hpCurrent: 12,
-  hpMax: 12,
-  hpTemp: 0,
-  ac: 16,
-  speed: 30,
-  initiativeBonus: 0,
-  hitDiceTotal: "1d10",
-  hitDiceCurrent: 1,
-  deathSaves: {
-    successes: 0,
-    failures: 0,
-  },
-  skills: {
-    athletics: 1,
-    survival: 1,
-    perception: 1,
-  },
-  attacks: [
-    {
-      id: "atk-1",
-      name: "Longsword",
-      atkBonus: "+4",
-      damage: "1d8+2 Slashing (Versatile 1d10)",
-      notes: "Melee Weapon",
+const CLASS_PROFILES: Record<string, { hitDie: string; saves: [string, string]; spellAbility?: "int" | "wis" | "cha" | "none" }> = {
+  Barbarian: { hitDie: "d12", saves: ["str", "con"] },
+  Bard: { hitDie: "d8", saves: ["dex", "cha"], spellAbility: "cha" },
+  Cleric: { hitDie: "d8", saves: ["wis", "cha"], spellAbility: "wis" },
+  Druid: { hitDie: "d8", saves: ["int", "wis"], spellAbility: "wis" },
+  Fighter: { hitDie: "d10", saves: ["str", "con"] },
+  Monk: { hitDie: "d8", saves: ["str", "dex"] },
+  Paladin: { hitDie: "d10", saves: ["wis", "cha"], spellAbility: "cha" },
+  Ranger: { hitDie: "d10", saves: ["str", "dex"], spellAbility: "wis" },
+  Rogue: { hitDie: "d8", saves: ["dex", "int"] },
+  Sorcerer: { hitDie: "d6", saves: ["con", "cha"], spellAbility: "cha" },
+  Warlock: { hitDie: "d8", saves: ["wis", "cha"], spellAbility: "cha" },
+  Wizard: { hitDie: "d6", saves: ["int", "wis"], spellAbility: "int" },
+  Artificer: { hitDie: "d8", saves: ["con", "int"], spellAbility: "int" },
+  "Blood Hunter": { hitDie: "d10", saves: ["dex", "int"] },
+};
+
+const DEFAULT_SHEET = (
+  userId: string,
+  character: string,
+  name: string,
+  userClass: string = "Fighter",
+  userLevel: number = 1
+): CharacterSheetData => {
+  const className = userClass || "Fighter";
+  const prof = CLASS_PROFILES[className] || CLASS_PROFILES.Fighter;
+  const level = Math.max(1, Math.min(20, userLevel || 1));
+  const hitDieNum = parseInt(prof.hitDie.slice(1), 10) || 10;
+  const conMod = 2;
+  const hp = hitDieNum + conMod + (level - 1) * (Math.floor(hitDieNum / 2) + 1 + conMod);
+
+  return {
+    userId,
+    name,
+    character,
+    class: className,
+    subclass: "",
+    level,
+    classes: [{ className, level, hitDie: prof.hitDie }],
+    race: "Human",
+    background: "Soldier",
+    alignment: "Neutral Good",
+    xp: 0,
+    inspiration: false,
+    stats: {
+      str: 15,
+      dex: 14,
+      con: 14,
+      int: 10,
+      wis: 12,
+      cha: 8,
     },
-    {
-      id: "atk-2",
-      name: "Light Crossbow",
-      atkBonus: "+4",
-      damage: "1d8+2 Piercing",
-      notes: "Range 80/320 ft, Loading",
+    savingThrows: {
+      [prof.saves[0]]: true,
+      [prof.saves[1]]: true,
     },
-  ],
-  inventoryItems: [
-    {
-      id: "item-chainshirt",
-      name: "Chain Shirt",
-      category: "armor",
-      quantity: 1,
-      weight: 20,
-      equipped: true,
-      equippedSlot: "armor",
-      baseAc: 13,
-      maxDexMod: 2,
+    hpCurrent: hp,
+    hpMax: hp,
+    hpTemp: 0,
+    ac: 14,
+    speed: 30,
+    initiativeBonus: 0,
+    hitDiceTotal: `${level}${prof.hitDie}`,
+    hitDiceCurrent: level,
+    deathSaves: {
+      successes: 0,
+      failures: 0,
     },
-    {
-      id: "item-longsword",
-      name: "Longsword",
-      category: "weapon",
-      quantity: 1,
-      weight: 3,
-      equipped: true,
-      equippedSlot: "mainHand",
-      damage: "1d8",
-      damageType: "slashing",
-      versatileDamage: "1d10",
-      properties: ["versatile"],
+    skills: {
+      athletics: 1,
+      survival: 1,
+      perception: 1,
     },
-    {
-      id: "item-shield",
-      name: "Shield",
-      category: "shield",
-      quantity: 1,
-      weight: 6,
-      equipped: true,
-      equippedSlot: "shield",
-      baseAc: 2,
+    languages: ["Common"],
+    toolProficiencies: [],
+    armorProficiencies: ["Light armor", "Medium armor"],
+    weaponProficiencies: ["Simple weapons", "Martial weapons"],
+    attacks: [
+      {
+        id: "atk-1",
+        name: "Primary Weapon",
+        atkBonus: `+${2 + Math.floor((level - 1) / 4) + 2}`,
+        damage: "1d8+2 Slashing",
+        notes: "Melee",
+      },
+    ],
+    inventoryItems: [],
+    equipped: {},
+    spellcastingAbility: prof.spellAbility || "none",
+    spellSlots: {
+      1: { total: level >= 2 && className === "Paladin" ? (level >= 5 ? 4 : level >= 3 ? 3 : 2) : 0, used: 0 },
+      2: { total: level >= 5 && className === "Paladin" ? 2 : 0, used: 0 },
+      3: { total: 0, used: 0 },
+      4: { total: 0, used: 0 },
+      5: { total: 0, used: 0 },
+      6: { total: 0, used: 0 },
+      7: { total: 0, used: 0 },
+      8: { total: 0, used: 0 },
+      9: { total: 0, used: 0 },
     },
-  ],
-  equipped: {
-    armorId: "item-chainshirt",
-    shieldId: "item-shield",
-    mainHandId: "item-longsword",
-  },
-  spellcastingAbility: "none",
-  spellSlots: {
-    1: { total: 0, used: 0 },
-    2: { total: 0, used: 0 },
-    3: { total: 0, used: 0 },
-    4: { total: 0, used: 0 },
-    5: { total: 0, used: 0 },
-    6: { total: 0, used: 0 },
-    7: { total: 0, used: 0 },
-    8: { total: 0, used: 0 },
-    9: { total: 0, used: 0 },
-  },
-  spells: [],
-  featureList: [
-    {
-      id: "feat-second-wind",
-      name: "Second Wind",
-      source: "Fighter 1",
-      level: 1,
-      description: "Regain 1d10 + fighter level HP as a bonus action once per short or long rest.",
-    },
-    {
-      id: "feat-fighting-style",
-      name: "Fighting Style: Dueling",
-      source: "Fighter 1",
-      level: 1,
-      description: "+2 bonus to damage rolls with a one-handed melee weapon.",
-    },
-  ],
-  features: "Second Wind (1d10+1 hp bonus action, 1/short rest)\nFighting Style: Dueling (+2 damage with 1-handed weapon)",
-  inventory: "Chain shirt, Longsword, Shield, Explorer's Pack, 10 gp",
-  companions: [],
-  notes: "Loyal to the party. Keeps watch during night camp.",
-  updatedAt: Date.now(),
-});
+    spells: [],
+    featureList: [],
+    features: "",
+    inventory: "Adventurer's Pack",
+    companions: [],
+    notes: "New adventurer ready to explore.",
+    updatedAt: Date.now(),
+  };
+};
 
 function getSheetPath(userId: string): string {
   const safeId = userId.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -331,6 +313,7 @@ export const GET = handle(async (req: Request) => {
   const sheetPath = getSheetPath(targetUserId);
 
   let sheetData: CharacterSheetData;
+  let isNew = false;
 
   try {
     const raw = await ctx.storage.read(sheetPath);
@@ -359,16 +342,22 @@ export const GET = handle(async (req: Request) => {
       sheetData.featureList = [];
     }
   } catch {
+    isNew = true;
+    const users = await loadUsers(ctx.storage);
+    const targetUser = users.find((u) => u.id === targetUserId);
     sheetData = DEFAULT_SHEET(
       targetUserId,
-      targetUserId === ctx.user.id ? ctx.user.character : targetUserId,
-      targetUserId === ctx.user.id ? ctx.user.name : targetUserId
+      targetUser?.character || (targetUserId === ctx.user.id ? ctx.user.character : targetUserId),
+      targetUser?.name || (targetUserId === ctx.user.id ? ctx.user.name : targetUserId),
+      targetUser?.class,
+      targetUser?.level
     );
   }
 
   return Response.json({
     success: true,
     sheet: sheetData,
+    isNew,
     isOwner: targetUserId === ctx.user.id,
     isScribe: ctx.isScribe,
   });

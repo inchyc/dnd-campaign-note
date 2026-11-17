@@ -17,6 +17,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
+import { useFeedback } from "./FeedbackContext";
 
 interface SessionReview {
   id: string;
@@ -51,6 +52,7 @@ interface PreviewItem {
 }
 
 export function ScribeReviewsView() {
+  const { toast, confirm: confirmDialog } = useFeedback();
   const [reviews, setReviews] = useState<SessionReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [applyingId, setApplyingId] = useState<string | null>(null);
@@ -80,9 +82,12 @@ export function ScribeReviewsView() {
   }, []);
 
   const handleApplyReview = async (id: string) => {
-    if (!confirm(`Are you sure you want to approve and apply all staged updates for ${id} directly into the Obsidian vault?`)) {
-      return;
-    }
+    const ok = await confirmDialog({
+      title: "Apply Staged Scribe Updates?",
+      message: `Approve and apply all staged updates for ${id} directly into the Obsidian vault?`,
+      confirmLabel: "Approve & Apply",
+    });
+    if (!ok) return;
     setApplyingId(id);
     try {
       const res = await fetch(`/api/scribe/reviews/${encodeURIComponent(id)}/apply`, {
@@ -90,13 +95,13 @@ export function ScribeReviewsView() {
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        alert(data.error || "Failed to apply review");
+        toast(data.error || "Failed to apply review", { type: "error" });
         return;
       }
-      alert(`Successfully applied! ${data.appliedNew} files created, ${data.appliedUpdates} files updated.`);
+      toast(`Applied! ${data.appliedNew} files created, ${data.appliedUpdates} files updated.`, { type: "success" });
       await fetchReviews();
     } catch (e: any) {
-      alert("Error applying review: " + e.message);
+      toast("Error applying review: " + e.message, { type: "error" });
     } finally {
       setApplyingId(null);
     }

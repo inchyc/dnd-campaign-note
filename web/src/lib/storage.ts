@@ -23,6 +23,7 @@ export interface Storage {
   exists(p: string): Promise<boolean>;
   list(dir: string): Promise<DirEntry[]>;
   mtime(p: string): Promise<number>;
+  delete(p: string): Promise<void>;
 }
 
 // Serialises writes per file so concurrent requests cannot interleave.
@@ -92,6 +93,15 @@ export class LocalFsStorage implements Storage {
   async mtime(p: string) {
     const st = await fs.promises.stat(this.abs(p));
     return Math.floor(st.mtimeMs);
+  }
+
+  async delete(p: string): Promise<void> {
+    const full = this.abs(p);
+    try {
+      await fs.promises.unlink(full);
+    } catch (e: any) {
+      if (e.code !== "ENOENT") throw e;
+    }
   }
 }
 
@@ -345,6 +355,13 @@ export class GitHubStorage implements Storage {
   async mtime(p: string): Promise<number> {
     return this.localMtimes.get(p) || Date.now();
   }
+
+  async delete(p: string): Promise<void> {
+    this.memoryWrites.delete(p);
+    this.memoryBinary.delete(p);
+    this.localMtimes.delete(p);
+    this.treeCache = null;
+  }
 }
 
 /**
@@ -532,6 +549,16 @@ export class SupabaseStorage implements Storage {
 
     if (error || !data) return Date.now();
     return Number(data.mtime) || Date.now();
+  }
+
+  async delete(p: string): Promise<void> {
+    const supabase = getSupabaseAdmin();
+    const clean = this.cleanPath(p);
+    await supabase
+      .from("notes")
+      .delete()
+      .eq("campaign_id", this.campaignId)
+      .eq("path", clean);
   }
 }
 

@@ -44,11 +44,14 @@ import { ScribeReviewsView } from "@/components/ScribeReviewsView";
 import { ObsidianSyncView } from "@/components/ObsidianSyncView";
 import { CharacterSheetView } from "@/components/CharacterSheetView";
 import { DiceInitiativeDrawer } from "@/components/DiceInitiativeDrawer";
-import { GlobalSearchModal } from "@/components/GlobalSearchModal";
+import { GlobalSearchModal, CommandAction } from "@/components/GlobalSearchModal";
 import { NetworkStatusBar } from "@/components/NetworkStatusBar";
 import { CreateNoteModal } from "@/components/CreateNoteModal";
 import { CreateCampaignModal } from "@/components/CreateCampaignModal";
 import { ManageRolesModal } from "@/components/ManageRolesModal";
+import { FeedbackProvider, useFeedback } from "@/components/FeedbackContext";
+import { TableToolsProvider, useTableTools } from "@/components/TableToolsContext";
+import { AppSidebar, HubTabId } from "@/components/AppSidebar";
 import { setCachedData, getCachedData } from "@/lib/cache";
 import { getStatusBadge } from "@/lib/statusConfig";
 import { applyJournalToNotes } from "@/lib/mutationJournal";
@@ -93,13 +96,23 @@ interface HomeData {
 }
 
 export default function CampaignHub() {
+  return (
+    <FeedbackProvider>
+      <TableToolsProvider partyMembers={[]}>
+        <CampaignHubInner />
+      </TableToolsProvider>
+    </FeedbackProvider>
+  );
+}
+
+function CampaignHubInner() {
+  const { toast } = useFeedback();
+  const { isDrawerOpen, openDrawer, closeDrawer, rollDice } = useTableTools();
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [currentCampaign, setCurrentCampaign] = useState<{ id: string; name: string } | null>(null);
   const [isCampaignMenuOpen, setIsCampaignMenuOpen] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<
-    "home" | "sheet" | "sessions" | "npcs" | "locations" | "lore" | "quests" | "party" | "scratchpad" | "audio" | "reviews" | "sync"
-  >("home");
+  const [activeTab, setActiveTab] = useState<HubTabId>("home");
 
   // Home dashboard data
   const [homeData, setHomeData] = useState<HomeData | null>(null);
@@ -119,7 +132,6 @@ export default function CampaignHub() {
   // Modals & Drawers
   const [selectedNotePath, setSelectedNotePath] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isDiceOpen, setIsDiceOpen] = useState(false);
   const [isCreateNoteOpen, setIsCreateNoteOpen] = useState(false);
   const [createNoteCategory, setCreateNoteCategory] = useState("npc");
   const [isCreateCampaignOpen, setIsCreateCampaignOpen] = useState(false);
@@ -189,8 +201,8 @@ export default function CampaignHub() {
         return true;
       }
       // Tier 3: Dice & Initiative Drawer
-      if (isDiceOpen) {
-        setIsDiceOpen(false);
+      if (isDrawerOpen) {
+        closeDrawer();
         return true;
       }
       // Tier 4: Campaign Menu Dropdown
@@ -209,7 +221,7 @@ export default function CampaignHub() {
     return () => {
       (window as any).__handleAndroidBack = undefined;
     };
-  }, [selectedNotePath, isCreateNoteOpen, isCreateCampaignOpen, isSearchOpen, isDiceOpen, isCampaignMenuOpen, activeTab]);
+  }, [selectedNotePath, isCreateNoteOpen, isCreateCampaignOpen, isSearchOpen, isDrawerOpen, closeDrawer, isCampaignMenuOpen, activeTab]);
 
   // Fetch Home dashboard
   const fetchHome = useCallback(async () => {
@@ -351,11 +363,12 @@ export default function CampaignHub() {
       const data = await res.json();
       if (data.success) {
         fetchHome();
+        toast("Campaign recap regenerated!", { type: "success" });
       } else {
-        alert(data.error || "Recap generation failed");
+        toast(data.error || "Recap generation failed", { type: "error" });
       }
     } catch (e: any) {
-      alert("Error: " + e.message);
+      toast("Error: " + e.message, { type: "error" });
     } finally {
       setRecapGenerating(false);
     }
@@ -392,11 +405,11 @@ export default function CampaignHub() {
         await fetchParty();
       } else {
         const err = await res.json().catch(() => ({}));
-        alert("Could not update visibility: " + (err.error || res.statusText));
+        toast("Could not update visibility: " + (err.error || res.statusText), { type: "error" });
         await fetchParty();
       }
     } catch (e: any) {
-      alert("Error updating visibility: " + e.message);
+      toast("Error updating visibility: " + e.message, { type: "error" });
       await fetchParty();
     }
   };
@@ -588,7 +601,7 @@ export default function CampaignHub() {
             {/* Dice & Initiative Drawer Toggle */}
             <button
               type="button"
-              onClick={() => setIsDiceOpen(true)}
+              onClick={() => openDrawer("dice")}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fantasy-800 hover:bg-fantasy-700 border border-fantasy-700 text-xs text-amber-200 font-semibold transition shadow-sm"
               title="Open Dice Roller and Initiative Tracker"
             >
@@ -659,50 +672,25 @@ export default function CampaignHub() {
             </div>
           </div>
         </div>
-
-        {/* Desktop Tab Navigation Bar */}
-        <div className="max-w-7xl mx-auto pt-3 hidden md:flex items-center gap-1 overflow-x-auto text-xs font-medium">
-          {[
-            { id: "home", label: "Dashboard", icon: Sparkles },
-            { id: "sheet", label: "Character Sheet", icon: Shield },
-            { id: "sessions", label: "Session Notes", icon: Calendar },
-            { id: "npcs", label: "NPCs", icon: Users },
-            { id: "locations", label: "Locations", icon: MapPin },
-            { id: "lore", label: "Lore", icon: BookOpen },
-            { id: "quests", label: "Quests & Rumors", icon: Compass },
-            { id: "party", label: "Party & Camp Loot", icon: Backpack },
-            { id: "scratchpad", label: "Live Scratchpad", icon: Edit3 },
-            ...(isScribe
-              ? [
-                  { id: "audio", label: "Audio Scribe", icon: Mic },
-                  { id: "reviews", label: "AI Reviews", icon: Bot },
-                ]
-              : []),
-            { id: "sync", label: "Sync & Vault", icon: RefreshCw },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition ${
-                  isActive
-                    ? "bg-amber-600 text-slate-950 font-semibold shadow"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-fantasy-800"
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
-        </div>
       </header>
 
-      {/* Main Page Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 pb-24 md:pb-8">
+      {/* Desktop Sidebar + Main Page Body */}
+      <div className="flex flex-1 min-h-0">
+        <AppSidebar
+          activeTab={activeTab}
+          onSelectTab={(tab) => setActiveTab(tab)}
+          isScribe={isScribe}
+          onNewNote={() => handleOpenCreateNote(activeTab)}
+          onOpenTableTools={() => openDrawer("dice")}
+          activeQuestCount={
+            homeData?.quests?.filter((q) => {
+              const b = questBucket(q.status);
+              return b === "open" || b === "active";
+            }).length
+          }
+        />
+
+        <main className="flex-1 min-w-0 max-w-6xl w-full mx-auto p-4 sm:p-6 pb-24 md:pb-8">
         {/* VIEW 1: HOME DASHBOARD */}
         {activeTab === "home" && (
           <div className="space-y-6">
@@ -1295,6 +1283,7 @@ export default function CampaignHub() {
           <ObsidianSyncView activeCampaign={currentCampaign} isScribe={isScribe} />
         )}
       </main>
+      </div>
 
       {/* Mobile Bottom Navigation Bar (Clean Ergonomic Tabs) */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-fantasy-900/95 backdrop-blur-md border-t border-fantasy-700/80 px-2 pt-2 pb-safe flex items-center justify-around text-[10px]">
@@ -1403,7 +1392,7 @@ export default function CampaignHub() {
                 if (data.results?.length > 0) {
                   setSelectedNotePath(data.results[0].meta.path);
                 } else {
-                  alert(`Note not found: ${target}`);
+                  toast(`Note not found: ${target}`, { type: "warning" });
                 }
               });
           }
@@ -1426,17 +1415,87 @@ export default function CampaignHub() {
         }}
       />
 
-      {/* Global Search Modal (Ctrl+K) */}
+      {/* Global Command Palette (Ctrl+K) */}
       <GlobalSearchModal
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
         onSelectNote={(path) => setSelectedNotePath(path)}
+        actions={[
+          {
+            id: "roll-d20",
+            label: "Roll d20",
+            hint: "Dice",
+            keywords: "dice roll d20 check",
+            icon: <Dices className="w-4 h-4" />,
+            onExecute: () => rollDice("1d20", { label: "Quick d20" }),
+          },
+          {
+            id: "roll-adv",
+            label: "Roll d20 with Advantage",
+            hint: "Dice",
+            keywords: "dice advantage d20",
+            icon: <Dices className="w-4 h-4" />,
+            onExecute: () => rollDice("1d20", { label: "Quick d20 (Advantage)", modeOverride: "advantage" }),
+          },
+          {
+            id: "new-note",
+            label: "Create New Codex Note",
+            hint: "Action",
+            keywords: "add create note npc location lore quest",
+            icon: <Plus className="w-4 h-4" />,
+            onExecute: () => handleOpenCreateNote(activeTab),
+          },
+          {
+            id: "open-table-tools",
+            label: "Open Table Tools (Dice & Initiative)",
+            hint: "Drawer",
+            keywords: "dice initiative combat tracker",
+            icon: <Dices className="w-4 h-4" />,
+            onExecute: () => openDrawer("dice"),
+          },
+          {
+            id: "go-sheet",
+            label: "Go to Character Sheet",
+            hint: "Tab",
+            keywords: "character stats hp spells",
+            icon: <Shield className="w-4 h-4" />,
+            onExecute: () => setActiveTab("sheet"),
+          },
+          {
+            id: "go-quests",
+            label: "Go to Quests & Rumors",
+            hint: "Tab",
+            keywords: "quests board tasks",
+            icon: <Compass className="w-4 h-4" />,
+            onExecute: () => setActiveTab("quests"),
+          },
+          {
+            id: "go-scratchpad",
+            label: "Go to Live Scratchpad",
+            hint: "Tab",
+            keywords: "notes table feed scratchpad",
+            icon: <Edit3 className="w-4 h-4" />,
+            onExecute: () => setActiveTab("scratchpad"),
+          },
+          ...(isScribe
+            ? [
+                {
+                  id: "toggle-player-view",
+                  label: isPlayerViewActive ? "Disable Player View (Restore DM)" : "Enable Player View",
+                  hint: "Scribe",
+                  keywords: "player view secret hide dm",
+                  icon: isPlayerViewActive ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />,
+                  onExecute: handleTogglePlayerView,
+                } as CommandAction,
+              ]
+            : []),
+        ]}
       />
 
       {/* Table Tools (Dice & Initiative Drawer) */}
       <DiceInitiativeDrawer
-        isOpen={isDiceOpen}
-        onClose={() => setIsDiceOpen(false)}
+        isOpen={isDrawerOpen}
+        onClose={closeDrawer}
         partyMembers={
           homeData?.roster || [
             { character: "Vex", name: "Chris" },

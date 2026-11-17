@@ -137,7 +137,7 @@ for (const relFile of relFiles) {
 
 notes.sort((a, b) => a.title.localeCompare(b.title));
 
-const outDir = path.resolve(process.cwd(), "src/generated");
+const outDir = path.resolve(import.meta.dirname, "../src/generated");
 if (!fs.existsSync(outDir)) {
   fs.mkdirSync(outDir, { recursive: true });
 }

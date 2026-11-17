@@ -49,6 +49,8 @@ export const POST = handle(async (req: Request, { params }: { params: Promise<{ 
     name,
     character,
     role,
+    class: characterClass,
+    level,
     hash,
     characterNotes: [characterPath],
   };

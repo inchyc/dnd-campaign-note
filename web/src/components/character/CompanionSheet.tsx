@@ -128,8 +128,8 @@ export function CompanionSheet({
               onClick={() => setSelectedId(comp.id)}
               className={`px-3 py-1.5 rounded-lg text-xs font-serif transition-colors flex items-center gap-2 ${
                 comp.id === activeCompanion.id
-                  ? "bg-amber-600/20 border border-amber-500 text-amber-300 font-bold"
-                  : "bg-stone-900 border border-stone-800 text-stone-400 hover:text-stone-200"
+                  ? "bg-md-primary-container border border-md-primary text-md-primary-onContainer font-bold"
+                  : "bg-md-surface-variant border border-md-surface-variant text-md-surface-onVariant hover:text-md-primary-onContainer"
               }`}
             >
               <span>{comp.name}</span>
@@ -151,41 +151,41 @@ export function CompanionSheet({
       </div>
 
       {/* Active Companion Stat Block */}
-      <div className="p-6 rounded-2xl bg-gradient-to-br from-stone-950 to-stone-900 border border-amber-500/30 space-y-6 shadow-xl">
+      <div className="p-6 rounded-2xl bg-md-surface border border-md-surface-variant space-y-6 shadow-sm">
         {/* Header */}
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-2xl font-serif font-bold text-amber-100">
+              <h2 className="text-2xl font-serif font-bold text-md-primary-onContainer">
                 {activeCompanion.name}
               </h2>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-stone-800 text-amber-300 uppercase tracking-wider font-mono">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-md-surface-variant text-md-primary-onContainer uppercase tracking-wider font-mono">
                 {activeCompanion.type}
               </span>
             </div>
-            <p className="text-xs text-stone-400 mt-1">
+            <p className="text-xs text-md-surface-onVariant mt-1">
               {activeCompanion.creatureType} • Speed: {activeCompanion.speed}
             </p>
           </div>
 
           <div className="flex items-center gap-4">
             {/* HP Pill */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-stone-900 border border-stone-800">
-              <Heart className="w-4 h-4 text-red-500 fill-red-500/20" />
-              <div className="font-mono text-sm font-bold text-stone-100">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-md-surface-variant border border-md-surface-variant">
+              <Heart className="w-4 h-4 text-md-error fill-md-error/20" />
+              <div className="font-mono text-sm font-bold text-md-surface-onVariant">
                 {activeCompanion.hpCurrent} / {activeCompanion.hpMax}
               </div>
               {canEdit && (
                 <div className="flex items-center gap-1 ml-1">
                   <button
                     onClick={() => handleAdjustHp(-1)}
-                    className="w-5 h-5 rounded bg-stone-800 text-stone-300 hover:bg-stone-700 text-xs font-bold"
+                    className="w-5 h-5 rounded bg-md-surface-variant text-md-surface-onVariant hover:bg-md-primary-container text-xs font-bold"
                   >
                     -
                   </button>
                   <button
                     onClick={() => handleAdjustHp(1)}
-                    className="w-5 h-5 rounded bg-stone-800 text-stone-300 hover:bg-stone-700 text-xs font-bold"
+                    className="w-5 h-5 rounded bg-md-surface-variant text-md-surface-onVariant hover:bg-md-primary-container text-xs font-bold"
                   >
                     +
                   </button>

@@ -45,23 +45,7 @@ const CALLOUT_CONFIG: Record<
   quote: { label: "Quote", icon: Quote, border: "border-slate-500/40", bg: "bg-slate-900/40", text: "text-slate-300" },
 };
 
-/** Preprocesses markdown: transforms Obsidian wikilinks [[Target|Label]] into markdown links */
-function preprocessWikilinks(text: string): string {
-  if (!text) return "";
-  // Strip Dataview queries or Obsidian query markers
-  let processed = text.replace(/<!--\s*QueryToSerialize:[\s\S]*?SerializedQuery\s*-->/g, "");
-  processed = processed.replace(/<!--\s*SerializedQuery\s+END\s*-->/g, "");
-
-  // Wikilinks: [[Target|Alias]] -> [Alias](#note:Target)
-  // [[Target]] -> [Target](#note:Target)
-  processed = processed.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, target, alias) => {
-    const cleanTarget = target.trim();
-    const label = (alias || cleanTarget).trim();
-    return `[${label}](#note:${encodeURIComponent(cleanTarget)})`;
-  });
-
-  return processed;
-}
+import { preprocessWikilinks } from "@/lib/markdownUtils";
 
 export function MarkdownView({
   content,

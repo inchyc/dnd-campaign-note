@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
 import { SessionQuickRef } from "./SessionQuickRef";
+import { useFeedback } from "./FeedbackContext";
+import { applyJournalToBody } from "@/lib/mutationJournal";
 
 interface SessionNoteMeta {
   path: string;
@@ -40,6 +42,7 @@ export function SessionNotesView({
   onSelectNote,
   onNavigateToWikilink,
 }: SessionNotesViewProps) {
+  const { toast } = useFeedback();
   const [sessions, setSessions] = useState<SessionNoteMeta[]>([]);
   const [selectedSessionPath, setSelectedSessionPath] = useState<string | null>(null);
   const [noteContent, setNoteContent] = useState<string>("");
@@ -95,8 +98,10 @@ export function SessionNotesView({
     fetch(`/api/note?path=${encodeURIComponent(selectedSessionPath)}`)
       .then((res) => res.json())
       .then((data) => {
-        if (!cancelled && data.content) {
-          setNoteContent(data.content);
+        if (!cancelled) {
+          const body = data.note?.body || data.note?.raw || data.content || "";
+          const patched = applyJournalToBody(selectedSessionPath, body);
+          setNoteContent(patched);
         }
       })
       .catch((err) => {
@@ -116,7 +121,7 @@ export function SessionNotesView({
     const dateMatch = selectedSessionPath.match(/(\d{4}-\d{2}-\d{2})/);
     const sessionDate = dateMatch ? dateMatch[1] : "";
     if (!sessionDate) {
-      alert("Could not identify session date from note path.");
+      toast("Could not identify session date from note path.", { type: "warning" });
       return;
     }
 
@@ -135,10 +140,10 @@ export function SessionNotesView({
           `AI Lore-Master completed! Staged ${data.newCount || 0} new notes and ${data.updateCount || 0} updates in _Review. Check the 'AI Reviews' tab to approve.`
         );
       } else {
-        alert(data.error || "AI Lore-Master failed to run.");
+        toast(data.error || "AI Lore-Master failed to run.", { type: "error" });
       }
     } catch (e: any) {
-      alert(e.message || "Failed running AI Lore-Master");
+      toast(e.message || "Failed running AI Lore-Master", { type: "error" });
     } finally {
       setAiRunning(false);
     }

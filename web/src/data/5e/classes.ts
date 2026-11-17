@@ -13,7 +13,47 @@ export interface SubclassDefinition {
   features: ClassFeature[];
 }
 
+export interface StartingEquipmentChoice {
+  id: string;
+  name: string;
+  options: Array<{
+    label: string;
+    items: Array<{
+      name: string;
+      category: "weapon" | "armor" | "shield" | "gear" | "tool";
+      quantity: number;
+      baseAc?: number;
+      maxDexMod?: number;
+      damage?: string;
+      damageType?: string;
+      versatileDamage?: string;
+      properties?: string[];
+      range?: string;
+    }>;
+  }>;
+}
+
+export interface ClassSkillChoice {
+  count: number;
+  availableSkills: string[];
+}
+
 export interface ClassDefinition {
+  skillChoices: ClassSkillChoice;
+  startingEquipmentChoices?: StartingEquipmentChoice[];
+  fixedEquipment?: Array<{
+    name: string;
+    category: "weapon" | "armor" | "shield" | "gear" | "tool";
+    quantity: number;
+    baseAc?: number;
+    maxDexMod?: number;
+    damage?: string;
+    damageType?: string;
+    versatileDamage?: string;
+    properties?: string[];
+    range?: string;
+  }>;
+  multiclassGains?: string[];
   id: string;
   name: string;
   hitDie: string; // e.g. "d12"
@@ -33,6 +73,10 @@ export interface ClassDefinition {
 
 export const CLASSES_5E: Record<string, ClassDefinition> = {
   Barbarian: {
+    skillChoices: {"count":2,"availableSkills":["animalHandling","athletics","intimidation","nature","perception","survival"]},
+    multiclassGains: ["Shields","Simple weapons","Martial weapons"],
+    startingEquipmentChoices: [{"id":"barb-1","name":"Primary Weapon","options":[{"label":"Greataxe","items":[{"name":"Greataxe","category":"weapon","quantity":1,"damage":"1d12","damageType":"slashing","properties":["heavy","two-handed"]}]},{"label":"Greatsword","items":[{"name":"Greatsword","category":"weapon","quantity":1,"damage":"2d6","damageType":"slashing","properties":["heavy","two-handed"]}]}]},{"id":"barb-2","name":"Secondary Weapons","options":[{"label":"Two Handaxes","items":[{"name":"Handaxe","category":"weapon","quantity":2,"damage":"1d6","damageType":"slashing","properties":["light","thrown"],"range":"20/60"}]},{"label":"Two Javelins","items":[{"name":"Javelin","category":"weapon","quantity":2,"damage":"1d6","damageType":"piercing","properties":["thrown"],"range":"30/120"}]}]},{"id":"barb-3","name":"Pack","options":[{"label":"Explorer's Pack and 4 Javelins","items":[{"name":"Explorer's Pack","category":"gear","quantity":1},{"name":"Javelin","category":"weapon","quantity":4,"damage":"1d6","damageType":"piercing","properties":["thrown"],"range":"30/120"}]}]}],
+    fixedEquipment: [],
     id: "barbarian",
     name: "Barbarian",
     hitDie: "d12",
@@ -88,6 +132,10 @@ export const CLASSES_5E: Record<string, ClassDefinition> = {
     ],
   },
   Bard: {
+    skillChoices: {"count":3,"availableSkills":["acrobatics","animalHandling","arcana","athletics","deception","history","insight","intimidation","investigation","medicine","nature","perception","performance","persuasion","religion","sleightOfHand","stealth","survival"]},
+    multiclassGains: ["Light armor","One skill of choice","One musical instrument"],
+    startingEquipmentChoices: [{"id":"bard-1","name":"Primary Weapon","options":[{"label":"Rapier","items":[{"name":"Rapier","category":"weapon","quantity":1,"damage":"1d8","damageType":"piercing","properties":["finesse"]}]},{"label":"Longsword","items":[{"name":"Longsword","category":"weapon","quantity":1,"damage":"1d8","damageType":"slashing","versatileDamage":"1d10","properties":["versatile"]}]},{"label":"Simple Weapon (Dagger x2)","items":[{"name":"Dagger","category":"weapon","quantity":2,"damage":"1d4","damageType":"piercing","properties":["finesse","light","thrown"],"range":"20/60"}]}]},{"id":"bard-2","name":"Pack","options":[{"label":"Diplomat's Pack","items":[{"name":"Diplomat's Pack","category":"gear","quantity":1}]},{"label":"Entertainer's Pack","items":[{"name":"Entertainer's Pack","category":"gear","quantity":1}]}]},{"id":"bard-3","name":"Instrument","options":[{"label":"Lute","items":[{"name":"Lute","category":"tool","quantity":1}]},{"label":"Flute","items":[{"name":"Flute","category":"tool","quantity":1}]}]}],
+    fixedEquipment: [{"name":"Leather Armor","category":"armor","quantity":1,"baseAc":11},{"name":"Dagger","category":"weapon","quantity":1,"damage":"1d4","damageType":"piercing","properties":["finesse","light","thrown"],"range":"20/60"}],
     id: "bard",
     name: "Bard",
     hitDie: "d8",
@@ -143,6 +191,10 @@ export const CLASSES_5E: Record<string, ClassDefinition> = {
     ],
   },
   Cleric: {
+    skillChoices: {"count":2,"availableSkills":["history","insight","medicine","persuasion","religion"]},
+    multiclassGains: ["Light armor","Medium armor","Shields"],
+    startingEquipmentChoices: [{"id":"cleric-1","name":"Weapon","options":[{"label":"Mace","items":[{"name":"Mace","category":"weapon","quantity":1,"damage":"1d6","damageType":"bludgeoning"}]},{"label":"Warhammer","items":[{"name":"Warhammer","category":"weapon","quantity":1,"damage":"1d8","damageType":"bludgeoning","versatileDamage":"1d10","properties":["versatile"]}]}]},{"id":"cleric-2","name":"Armor","options":[{"label":"Scale Mail","items":[{"name":"Scale Mail","category":"armor","quantity":1,"baseAc":14,"maxDexMod":2}]},{"label":"Leather Armor","items":[{"name":"Leather Armor","category":"armor","quantity":1,"baseAc":11}]},{"label":"Chain Mail","items":[{"name":"Chain Mail","category":"armor","quantity":1,"baseAc":16}]}]},{"id":"cleric-3","name":"Ranged/Secondary","options":[{"label":"Light Crossbow and 20 bolts","items":[{"name":"Light Crossbow","category":"weapon","quantity":1,"damage":"1d8","damageType":"piercing","properties":["ammunition","loading","two-handed"],"range":"80/320"},{"name":"Crossbow Bolts (20)","category":"gear","quantity":20}]},{"label":"Simple Weapon (Mace)","items":[{"name":"Mace","category":"weapon","quantity":1,"damage":"1d6","damageType":"bludgeoning"}]}]},{"id":"cleric-4","name":"Pack","options":[{"label":"Priest's Pack","items":[{"name":"Priest's Pack","category":"gear","quantity":1}]},{"label":"Explorer's Pack","items":[{"name":"Explorer's Pack","category":"gear","quantity":1}]}]}],
+    fixedEquipment: [{"name":"Shield","category":"shield","quantity":1,"baseAc":2},{"name":"Holy Symbol","category":"gear","quantity":1}],
     id: "cleric",
     name: "Cleric",
     hitDie: "d8",
@@ -206,6 +258,10 @@ export const CLASSES_5E: Record<string, ClassDefinition> = {
     ],
   },
   Druid: {
+    skillChoices: {"count":2,"availableSkills":["arcana","animalHandling","insight","medicine","nature","perception","religion","survival"]},
+    multiclassGains: ["Light armor","Medium armor","Shields (non-metal)"],
+    startingEquipmentChoices: [{"id":"druid-1","name":"Shield / Secondary","options":[{"label":"Wooden Shield","items":[{"name":"Wooden Shield","category":"shield","quantity":1,"baseAc":2}]},{"label":"Quarterstaff","items":[{"name":"Quarterstaff","category":"weapon","quantity":1,"damage":"1d6","damageType":"bludgeoning","versatileDamage":"1d8","properties":["versatile"]}]}]},{"id":"druid-2","name":"Melee Weapon","options":[{"label":"Scimitar","items":[{"name":"Scimitar","category":"weapon","quantity":1,"damage":"1d6","damageType":"slashing","properties":["finesse","light"]}]},{"label":"Dagger","items":[{"name":"Dagger","category":"weapon","quantity":1,"damage":"1d4","damageType":"piercing","properties":["finesse","light","thrown"],"range":"20/60"}]}]}],
+    fixedEquipment: [{"name":"Leather Armor","category":"armor","quantity":1,"baseAc":11},{"name":"Explorer's Pack","category":"gear","quantity":1},{"name":"Druidic Focus","category":"gear","quantity":1}],
     id: "druid",
     name: "Druid",
     hitDie: "d8",
@@ -253,6 +309,10 @@ export const CLASSES_5E: Record<string, ClassDefinition> = {
     ],
   },
   Fighter: {
+    skillChoices: {"count":2,"availableSkills":["acrobatics","animalHandling","athletics","history","insight","intimidation","perception","survival"]},
+    multiclassGains: ["Light armor","Medium armor","Shields","Simple weapons","Martial weapons"],
+    startingEquipmentChoices: [{"id":"fighter-1","name":"Armor","options":[{"label":"Chain Mail (AC 16)","items":[{"name":"Chain Mail","category":"armor","quantity":1,"baseAc":16}]},{"label":"Leather Armor, Longbow and 20 arrows","items":[{"name":"Leather Armor","category":"armor","quantity":1,"baseAc":11},{"name":"Longbow","category":"weapon","quantity":1,"damage":"1d8","damageType":"piercing","properties":["ammunition","heavy","two-handed"],"range":"150/600"},{"name":"Arrows (20)","category":"gear","quantity":20}]}]},{"id":"fighter-2","name":"Primary Weapons","options":[{"label":"Martial Weapon and Shield (Longsword + Shield)","items":[{"name":"Longsword","category":"weapon","quantity":1,"damage":"1d8","damageType":"slashing","versatileDamage":"1d10","properties":["versatile"]},{"name":"Shield","category":"shield","quantity":1,"baseAc":2}]},{"label":"Two Martial Weapons (Greatsword and Longsword)","items":[{"name":"Greatsword","category":"weapon","quantity":1,"damage":"2d6","damageType":"slashing","properties":["heavy","two-handed"]},{"name":"Longsword","category":"weapon","quantity":1,"damage":"1d8","damageType":"slashing","versatileDamage":"1d10","properties":["versatile"]}]}]},{"id":"fighter-3","name":"Secondary Weapon","options":[{"label":"Light Crossbow and 20 bolts","items":[{"name":"Light Crossbow","category":"weapon","quantity":1,"damage":"1d8","damageType":"piercing","properties":["ammunition","loading","two-handed"],"range":"80/320"},{"name":"Crossbow Bolts (20)","category":"gear","quantity":20}]},{"label":"Two Handaxes","items":[{"name":"Handaxe","category":"weapon","quantity":2,"damage":"1d6","damageType":"slashing","properties":["light","thrown"],"range":"20/60"}]}]},{"id":"fighter-4","name":"Pack","options":[{"label":"Dungeoneer's Pack","items":[{"name":"Dungeoneer's Pack","category":"gear","quantity":1}]},{"label":"Explorer's Pack","items":[{"name":"Explorer's Pack","category":"gear","quantity":1}]}]}],
+    fixedEquipment: [],
     id: "fighter",
     name: "Fighter",
     hitDie: "d10",
@@ -315,6 +375,10 @@ export const CLASSES_5E: Record<string, ClassDefinition> = {
     ],
   },
   Monk: {
+    skillChoices: {"count":2,"availableSkills":["acrobatics","athletics","history","insight","religion","stealth"]},
+    multiclassGains: ["Simple weapons","Shortswords"],
+    startingEquipmentChoices: [{"id":"monk-1","name":"Weapon","options":[{"label":"Shortsword","items":[{"name":"Shortsword","category":"weapon","quantity":1,"damage":"1d6","damageType":"piercing","properties":["finesse","light"]}]},{"label":"Quarterstaff","items":[{"name":"Quarterstaff","category":"weapon","quantity":1,"damage":"1d6","damageType":"bludgeoning","versatileDamage":"1d8","properties":["versatile"]}]}]},{"id":"monk-2","name":"Pack","options":[{"label":"Dungeoneer's Pack","items":[{"name":"Dungeoneer's Pack","category":"gear","quantity":1}]},{"label":"Explorer's Pack","items":[{"name":"Explorer's Pack","category":"gear","quantity":1}]}]}],
+    fixedEquipment: [{"name":"Dart","category":"weapon","quantity":10,"damage":"1d4","damageType":"piercing","properties":["finesse","thrown"],"range":"20/60"}],
     id: "monk",
     name: "Monk",
     hitDie: "d8",
@@ -358,6 +422,10 @@ export const CLASSES_5E: Record<string, ClassDefinition> = {
     ],
   },
   Paladin: {
+    skillChoices: {"count":2,"availableSkills":["athletics","insight","intimidation","medicine","persuasion","religion"]},
+    multiclassGains: ["Light armor","Medium armor","Shields","Simple weapons","Martial weapons"],
+    startingEquipmentChoices: [{"id":"paladin-1","name":"Martial Weapon","options":[{"label":"Longsword and Shield","items":[{"name":"Longsword","category":"weapon","quantity":1,"damage":"1d8","damageType":"slashing","versatileDamage":"1d10","properties":["versatile"]},{"name":"Shield","category":"shield","quantity":1,"baseAc":2}]},{"label":"Greatsword and Warhammer","items":[{"name":"Greatsword","category":"weapon","quantity":1,"damage":"2d6","damageType":"slashing","properties":["heavy","two-handed"]},{"name":"Warhammer","category":"weapon","quantity":1,"damage":"1d8","damageType":"bludgeoning","versatileDamage":"1d10","properties":["versatile"]}]}]},{"id":"paladin-2","name":"Secondary Weapons","options":[{"label":"Five Javelins","items":[{"name":"Javelin","category":"weapon","quantity":5,"damage":"1d6","damageType":"piercing","properties":["thrown"],"range":"30/120"}]},{"label":"Mace","items":[{"name":"Mace","category":"weapon","quantity":1,"damage":"1d6","damageType":"bludgeoning"}]}]},{"id":"paladin-3","name":"Pack","options":[{"label":"Priest's Pack","items":[{"name":"Priest's Pack","category":"gear","quantity":1}]},{"label":"Explorer's Pack","items":[{"name":"Explorer's Pack","category":"gear","quantity":1}]}]}],
+    fixedEquipment: [{"name":"Chain Mail","category":"armor","quantity":1,"baseAc":16},{"name":"Holy Symbol","category":"gear","quantity":1}],
     id: "paladin",
     name: "Paladin",
     hitDie: "d10",
@@ -408,6 +476,10 @@ export const CLASSES_5E: Record<string, ClassDefinition> = {
     ],
   },
   Ranger: {
+    skillChoices: {"count":3,"availableSkills":["animalHandling","athletics","insight","investigation","nature","perception","stealth","survival"]},
+    multiclassGains: ["Light armor","Medium armor","Shields","Simple weapons","Martial weapons","One skill from Ranger list"],
+    startingEquipmentChoices: [{"id":"ranger-1","name":"Armor","options":[{"label":"Scale Mail (AC 14)","items":[{"name":"Scale Mail","category":"armor","quantity":1,"baseAc":14,"maxDexMod":2}]},{"label":"Leather Armor (AC 11)","items":[{"name":"Leather Armor","category":"armor","quantity":1,"baseAc":11}]}]},{"id":"ranger-2","name":"Melee Weapons","options":[{"label":"Two Shortswords","items":[{"name":"Shortsword","category":"weapon","quantity":2,"damage":"1d6","damageType":"piercing","properties":["finesse","light"]}]},{"label":"Two Handaxes","items":[{"name":"Handaxe","category":"weapon","quantity":2,"damage":"1d6","damageType":"slashing","properties":["light","thrown"],"range":"20/60"}]}]},{"id":"ranger-3","name":"Pack","options":[{"label":"Dungeoneer's Pack","items":[{"name":"Dungeoneer's Pack","category":"gear","quantity":1}]},{"label":"Explorer's Pack","items":[{"name":"Explorer's Pack","category":"gear","quantity":1}]}]}],
+    fixedEquipment: [{"name":"Longbow","category":"weapon","quantity":1,"damage":"1d8","damageType":"piercing","properties":["ammunition","heavy","two-handed"],"range":"150/600"},{"name":"Arrows (20)","category":"gear","quantity":20}],
     id: "ranger",
     name: "Ranger",
     hitDie: "d10",
@@ -462,6 +534,10 @@ export const CLASSES_5E: Record<string, ClassDefinition> = {
     ],
   },
   Rogue: {
+    skillChoices: {"count":4,"availableSkills":["acrobatics","athletics","deception","insight","intimidation","investigation","perception","performance","persuasion","sleightOfHand","stealth"]},
+    multiclassGains: ["Light armor","One skill from Rogue list","Thieves' tools"],
+    startingEquipmentChoices: [{"id":"rogue-1","name":"Primary Weapon","options":[{"label":"Rapier","items":[{"name":"Rapier","category":"weapon","quantity":1,"damage":"1d8","damageType":"piercing","properties":["finesse"]}]},{"label":"Shortsword","items":[{"name":"Shortsword","category":"weapon","quantity":1,"damage":"1d6","damageType":"piercing","properties":["finesse","light"]}]}]},{"id":"rogue-2","name":"Secondary Weapon","options":[{"label":"Shortbow and 20 arrows","items":[{"name":"Shortbow","category":"weapon","quantity":1,"damage":"1d6","damageType":"piercing","properties":["two-handed","ammunition"],"range":"80/320"},{"name":"Arrows (20)","category":"gear","quantity":20}]},{"label":"Shortsword","items":[{"name":"Shortsword","category":"weapon","quantity":1,"damage":"1d6","damageType":"piercing","properties":["finesse","light"]}]}]},{"id":"rogue-3","name":"Pack","options":[{"label":"Burglar's Pack","items":[{"name":"Burglar's Pack","category":"gear","quantity":1}]},{"label":"Dungeoneer's Pack","items":[{"name":"Dungeoneer's Pack","category":"gear","quantity":1}]},{"label":"Explorer's Pack","items":[{"name":"Explorer's Pack","category":"gear","quantity":1}]}]}],
+    fixedEquipment: [{"name":"Leather Armor","category":"armor","quantity":1,"baseAc":11},{"name":"Dagger","category":"weapon","quantity":2,"damage":"1d4","damageType":"piercing","properties":["finesse","light","thrown"],"range":"20/60"},{"name":"Thieves' Tools","category":"tool","quantity":1}],
     id: "rogue",
     name: "Rogue",
     hitDie: "d8",
@@ -526,6 +602,10 @@ export const CLASSES_5E: Record<string, ClassDefinition> = {
     ],
   },
   Sorcerer: {
+    skillChoices: {"count":2,"availableSkills":["arcana","deception","insight","intimidation","persuasion","religion"]},
+    multiclassGains: [],
+    startingEquipmentChoices: [{"id":"sorc-1","name":"Weapon","options":[{"label":"Light Crossbow and 20 bolts","items":[{"name":"Light Crossbow","category":"weapon","quantity":1,"damage":"1d8","damageType":"piercing","properties":["ammunition","loading","two-handed"],"range":"80/320"},{"name":"Crossbow Bolts (20)","category":"gear","quantity":20}]},{"label":"Quarterstaff","items":[{"name":"Quarterstaff","category":"weapon","quantity":1,"damage":"1d6","damageType":"bludgeoning","versatileDamage":"1d8","properties":["versatile"]}]}]},{"id":"sorc-2","name":"Focus","options":[{"label":"Component Pouch","items":[{"name":"Component Pouch","category":"gear","quantity":1}]},{"label":"Arcane Focus (Wand)","items":[{"name":"Arcane Focus (Wand)","category":"gear","quantity":1}]}]},{"id":"sorc-3","name":"Pack","options":[{"label":"Dungeoneer's Pack","items":[{"name":"Dungeoneer's Pack","category":"gear","quantity":1}]},{"label":"Explorer's Pack","items":[{"name":"Explorer's Pack","category":"gear","quantity":1}]}]}],
+    fixedEquipment: [{"name":"Dagger","category":"weapon","quantity":2,"damage":"1d4","damageType":"piercing","properties":["finesse","light","thrown"],"range":"20/60"}],
     id: "sorcerer",
     name: "Sorcerer",
     hitDie: "d6",
@@ -573,6 +653,10 @@ export const CLASSES_5E: Record<string, ClassDefinition> = {
     ],
   },
   Warlock: {
+    skillChoices: {"count":2,"availableSkills":["arcana","deception","history","intimidation","investigation","nature","religion"]},
+    multiclassGains: ["Light armor","Simple weapons"],
+    startingEquipmentChoices: [{"id":"warlock-1","name":"Weapon","options":[{"label":"Light Crossbow and 20 bolts","items":[{"name":"Light Crossbow","category":"weapon","quantity":1,"damage":"1d8","damageType":"piercing","properties":["ammunition","loading","two-handed"],"range":"80/320"},{"name":"Crossbow Bolts (20)","category":"gear","quantity":20}]},{"label":"Quarterstaff","items":[{"name":"Quarterstaff","category":"weapon","quantity":1,"damage":"1d6","damageType":"bludgeoning","versatileDamage":"1d8","properties":["versatile"]}]}]},{"id":"warlock-2","name":"Focus","options":[{"label":"Component Pouch","items":[{"name":"Component Pouch","category":"gear","quantity":1}]},{"label":"Arcane Focus (Wand)","items":[{"name":"Arcane Focus (Wand)","category":"gear","quantity":1}]}]},{"id":"warlock-3","name":"Pack","options":[{"label":"Scholar's Pack","items":[{"name":"Scholar's Pack","category":"gear","quantity":1}]},{"label":"Dungeoneer's Pack","items":[{"name":"Dungeoneer's Pack","category":"gear","quantity":1}]}]}],
+    fixedEquipment: [{"name":"Leather Armor","category":"armor","quantity":1,"baseAc":11},{"name":"Dagger","category":"weapon","quantity":2,"damage":"1d4","damageType":"piercing","properties":["finesse","light","thrown"],"range":"20/60"}],
     id: "warlock",
     name: "Warlock",
     hitDie: "d8",
@@ -621,6 +705,10 @@ export const CLASSES_5E: Record<string, ClassDefinition> = {
     ],
   },
   Wizard: {
+    skillChoices: {"count":2,"availableSkills":["arcana","history","insight","investigation","medicine","religion"]},
+    multiclassGains: [],
+    startingEquipmentChoices: [{"id":"wizard-1","name":"Weapon","options":[{"label":"Quarterstaff","items":[{"name":"Quarterstaff","category":"weapon","quantity":1,"damage":"1d6","damageType":"bludgeoning","versatileDamage":"1d8","properties":["versatile"]}]},{"label":"Dagger","items":[{"name":"Dagger","category":"weapon","quantity":1,"damage":"1d4","damageType":"piercing","properties":["finesse","light","thrown"],"range":"20/60"}]}]},{"id":"wizard-2","name":"Focus","options":[{"label":"Component Pouch","items":[{"name":"Component Pouch","category":"gear","quantity":1}]},{"label":"Arcane Focus (Wand)","items":[{"name":"Arcane Focus (Wand)","category":"gear","quantity":1}]}]},{"id":"wizard-3","name":"Pack","options":[{"label":"Scholar's Pack","items":[{"name":"Scholar's Pack","category":"gear","quantity":1}]},{"label":"Explorer's Pack","items":[{"name":"Explorer's Pack","category":"gear","quantity":1}]}]}],
+    fixedEquipment: [{"name":"Spellbook","category":"gear","quantity":1}],
     id: "wizard",
     name: "Wizard",
     hitDie: "d6",

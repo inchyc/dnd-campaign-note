@@ -53,7 +53,6 @@ Factions</a>
 | [[TTRPG/D&D/Starving Vilgeismar/Notes/Investigations/The Well of First Water.md\|The Well of First Water]] | 🔵 Low    | Water tastes "sweet/metallic"; determine if it's spiritual or poison.         |
 | [[The Vault Phantoms]]           | 🔵 Low    | Identify the origin and controller of the "Marionette" phantoms.              |
 | [[The Phantoms]]                       | 🔵 Low    | Shadow Phantoms attacked us in the Granary Vault                              |
-| [[The Disappearances]]           | 🔴 High   | Bernard & Albrecht are missing; "parties" in Butcher's Row are suspicious.    |
 | [[The Hunt for Harcon]]         | 🔴 High   | Locate and neutralize the Orc commander responsible for the Granary sabotage. |
 
 <!-- SerializedQuery END -->
@@ -72,6 +71,7 @@ Factions</a>
 
 | Investigation                                                                            | Outcome                                                            | Primary Lead |
 | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------ |
+| [[The Disappearances]] | Bernard & Albrecht are missing; "parties" in Butcher's Row are suspicious. | Bernard / Albrecht |
 | [[Grain Spoilage]] | Defeated "Grain Monster" in vaults; sang Hymn of Death to win.     | Sigmund      |
 | [[The Bee Pact]]     | Valcara claims a pact to harvest the dead; found bodies in garden. | Valcara      |
 

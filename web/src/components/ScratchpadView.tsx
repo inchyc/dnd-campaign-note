@@ -21,6 +21,8 @@ import {
   Download,
 } from "lucide-react";
 import { SessionQuickRef } from "./SessionQuickRef";
+import { WikiLinkTextarea } from "./WikiLinkTextarea";
+import { useFeedback } from "./FeedbackContext";
 
 interface ScratchLine {
   id: string;
@@ -50,6 +52,7 @@ function getCharacterStyle(author?: string) {
 }
 
 export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
+  const { toast } = useFeedback();
   const [activeTab, setActiveTab] = useState<"mine" | "table">("mine");
   const [sessionDate, setSessionDate] = useState<string>("");
   const [myLines, setMyLines] = useState<ScratchLine[]>([]);
@@ -123,10 +126,10 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
         showStatus(`Active session updated to ${targetSessionDate}`);
         fetchScratchpad();
       } else {
-        alert(data.error || "Failed to update session date");
+        toast(data.error || "Failed to update session date", { type: "error" });
       }
     } catch (err: any) {
-      alert(err.message || "Failed to update session date");
+      toast(err.message || "Failed to update session date", { type: "error" });
     }
   };
 
@@ -314,10 +317,10 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
           }`
         );
       } else {
-        alert(data.error || "Collation failed");
+        toast(data.error || "Collation failed", { type: "error" });
       }
     } catch (e: any) {
-      alert(e.message || "Collation failed");
+      toast(e.message || "Collation failed", { type: "error" });
     } finally {
       setCollating(false);
     }
@@ -538,16 +541,16 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
 
       {/* Note Input Box */}
       <form onSubmit={handleAddNote} className="space-y-3 p-4 rounded-xl bg-fantasy-900/60 border border-fantasy-700">
-        <textarea
+        <WikiLinkTextarea
           value={newNoteText}
-          onChange={(e) => setNewNoteText(e.target.value)}
+          onChange={setNewNoteText}
           onKeyDown={(e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
               e.preventDefault();
               handleAddNote(e);
             }
           }}
-          placeholder={`Add a quick note or observation as ${currentUser?.character || "Adventurer"}... (Ctrl+Enter to save)`}
+          placeholder={`Add a quick note or observation as ${currentUser?.character || "Adventurer"}... Type [[ to link notes · Ctrl+Enter to save`}
           rows={3}
           className="w-full p-3 text-sm bg-fantasy-850 border border-fantasy-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500"
         />

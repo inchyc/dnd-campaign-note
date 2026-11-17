@@ -25,6 +25,7 @@ import {
   getAudioChunk,
   blobToBase64,
 } from "@/lib/audioDb";
+import { useFeedback } from "./FeedbackContext";
 
 interface AudioChunk {
   index: number;
@@ -41,6 +42,7 @@ interface AudioScribeProps {
 const CHUNK_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 
 export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
+  const { toast } = useFeedback();
   const [chunks, setChunks] = useState<AudioChunk[]>([]);
   const [loading, setLoading] = useState(false);
   const [localBlobs, setLocalBlobs] = useState<Record<number, { blob: Blob; url: string }>>({});
@@ -234,7 +236,7 @@ export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
         });
       }, 1000);
     } catch (err: any) {
-      alert("Microphone access denied or error: " + err.message);
+      toast("Microphone access denied or error: " + err.message, { type: "error" });
     }
   };
 
@@ -270,7 +272,7 @@ export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        alert(data.error || "Transcription failed");
+        toast(data.error || "Transcription failed", { type: "error" });
         return;
       }
       setChunks((prev) =>
@@ -278,7 +280,7 @@ export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
       );
       await fetchChunks();
     } catch (e: any) {
-      alert("Transcription failed: " + e.message);
+      toast("Transcription failed: " + e.message, { type: "error" });
     } finally {
       setTranscribingIndex(null);
     }
@@ -295,10 +297,10 @@ export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
         }),
       });
       if (res.ok) {
-        alert("Transcript added directly to the Live Scratchpad & Table Feed!");
+        toast("Transcript added directly to the Live Scratchpad & Table Feed!", { type: "success" });
       }
     } catch (e) {
-      alert("Failed to add to scratchpad: " + e);
+      toast("Failed to add to scratchpad: " + e, { type: "error" });
     }
   };
 
@@ -605,7 +607,7 @@ export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
                           type="button"
                           onClick={() => {
                             if (navigator.clipboard) navigator.clipboard.writeText(chunk.text || "");
-                            alert("Transcript copied to clipboard!");
+                            toast("Transcript copied to clipboard!", { type: "success" });
                           }}
                           className="px-2 py-1 text-[11px] rounded bg-fantasy-800 text-slate-300 hover:text-white border border-fantasy-700 flex items-center gap-1 transition"
                         >

@@ -13,6 +13,8 @@ export interface HubUser {
   name: string; // real player name, e.g. "Travis"
   character: string; // e.g. "Cedric"
   role: Role;
+  class?: string; // e.g. "Paladin"
+  level?: number; // e.g. 5
   hash?: string;
   characterNotes?: string[]; // vault-relative paths of this player's character note(s)
 }
@@ -96,7 +98,7 @@ export async function saveUsers(storage: Storage, users: HubUser[]) {
 }
 
 export function publicUser(u: HubUser) {
-  return { id: u.id, name: u.name, character: u.character, role: u.role };
+  return { id: u.id, name: u.name, character: u.character, role: u.role, class: u.class, level: u.level };
 }
 
 // ---------- signed session cookie ----------

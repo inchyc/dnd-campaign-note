@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Dices,
   Shield,
@@ -13,15 +13,7 @@ import {
   Sparkles,
   Heart,
 } from "lucide-react";
-
-interface Combatant {
-  id: string;
-  name: string;
-  initiative: number;
-  currentHp?: number;
-  maxHp?: number;
-  isNpc?: boolean;
-}
+import { useTableTools, Combatant } from "./TableToolsContext";
 
 interface DiceInitiativeDrawerProps {
   isOpen: boolean;
@@ -34,63 +26,46 @@ export function DiceInitiativeDrawer({
   onClose,
   partyMembers,
 }: DiceInitiativeDrawerProps) {
-  const [activeTab, setActiveTab] = useState<"dice" | "initiative">("dice");
+  const {
+    drawerTab,
+    rollMode,
+    setRollMode,
+    modifier,
+    setModifier,
+    rollLog,
+    rollDice,
+    clearRollLog,
+    combatants,
+    setCombatants,
+    currentTurnIdx,
+    setCurrentTurnIdx,
+    round,
+    setRound,
+    seedPartyInitiative,
+  } = useTableTools();
 
-  // Dice Roller State
-  const [rollMode, setRollMode] = useState<"normal" | "advantage" | "disadvantage">("normal");
-  const [modifier, setModifier] = useState<number>(0);
-  const [rollLog, setRollLog] = useState<
-    Array<{ id: string; die: string; rolls: number[]; mod: number; total: number; timestamp: string }>
-  >([]);
-
-  // Initiative State
-  const [combatants, setCombatants] = useState<Combatant[]>(() =>
-    partyMembers.map((p, idx) => ({
-      id: `pc-${idx}`,
-      name: p.character,
-      initiative: 10 + Math.floor(Math.random() * 10),
-      currentHp: 28,
-      maxHp: 28,
-      isNpc: false,
-    }))
-  );
-  const [currentTurnIdx, setCurrentTurnIdx] = useState<number>(0);
-  const [round, setRound] = useState<number>(1);
+  const [activeTab, setActiveTab] = useState<"dice" | "initiative">(drawerTab);
+  const [customFormula, setCustomFormula] = useState("");
   const [newCombatantName, setNewCombatantName] = useState("");
   const [newCombatantInit, setNewCombatantInit] = useState("");
   const [newCombatantHp, setNewCombatantHp] = useState("20");
   const [isNewNpc, setIsNewNpc] = useState(true);
 
+  useEffect(() => {
+    setActiveTab(drawerTab);
+  }, [drawerTab]);
+
   if (!isOpen) return null;
 
   const rollDie = (sides: number) => {
-    const r1 = Math.floor(Math.random() * sides) + 1;
-    const r2 = Math.floor(Math.random() * sides) + 1;
-    let chosen = r1;
-    let rolls = [r1];
+    rollDice(sides, { applyGlobalModifier: true, silentToast: true });
+  };
 
-    if (sides === 20 && rollMode === "advantage") {
-      chosen = Math.max(r1, r2);
-      rolls = [r1, r2];
-    } else if (sides === 20 && rollMode === "disadvantage") {
-      chosen = Math.min(r1, r2);
-      rolls = [r1, r2];
-    }
-
-    const total = chosen + modifier;
-    const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-
-    setRollLog((prev) => [
-      {
-        id: Math.random().toString(),
-        die: `d${sides}`,
-        rolls,
-        mod: modifier,
-        total,
-        timestamp: time,
-      },
-      ...prev.slice(0, 19),
-    ]);
+  const handleCustomRoll = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customFormula.trim()) return;
+    rollDice(customFormula.trim(), { label: customFormula.trim(), silentToast: true });
+    setCustomFormula("");
   };
 
   const handleNextTurn = () => {
@@ -267,11 +242,39 @@ export function DiceInitiativeDrawer({
                 ))}
               </div>
 
+              {/* Custom Formula Input */}
+              <form onSubmit={handleCustomRoll} className="flex gap-2">
+                <input
+                  type="text"
+                  value={customFormula}
+                  onChange={(e) => setCustomFormula(e.target.value)}
+                  placeholder="Custom formula (e.g. 2d6+4)"
+                  className="flex-1 px-3 py-1.5 rounded-lg bg-fantasy-900 border border-fantasy-700 text-xs font-mono text-slate-200 focus:outline-none focus:border-amber-500"
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-bold transition"
+                >
+                  Roll
+                </button>
+              </form>
+
               {/* Roll History */}
               <div className="space-y-2 pt-2 border-t border-fantasy-700/60">
-                <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">
-                  Roll History
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">
+                    Roll History
+                  </span>
+                  {rollLog.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={clearRollLog}
+                      className="text-[10px] text-slate-500 hover:text-rose-400 transition"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
                 <div className="space-y-1.5 max-h-56 overflow-y-auto">
                   {rollLog.length === 0 ? (
                     <p className="text-xs text-slate-500 italic py-2 text-center">No rolls yet.</p>
@@ -279,22 +282,48 @@ export function DiceInitiativeDrawer({
                     rollLog.map((log) => (
                       <div
                         key={log.id}
-                        className="p-2 rounded bg-fantasy-900 border border-fantasy-700/60 flex items-center justify-between text-xs font-mono"
+                        className={`p-2 rounded bg-fantasy-900 border flex items-center justify-between text-xs font-mono ${
+                          log.isCrit
+                            ? "border-emerald-500/60 bg-emerald-950/20"
+                            : log.isFumble
+                            ? "border-rose-500/60 bg-rose-950/20"
+                            : "border-fantasy-700/60"
+                        }`}
                       >
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-amber-400 font-bold">{log.die}</span>
-                          {log.rolls.length > 1 && (
-                            <span className="text-slate-500 text-[10px]">
-                              [{log.rolls.join(", ")}]
-                            </span>
+                        <div className="min-w-0 pr-2">
+                          {log.label && (
+                            <div className="text-[11px] font-sans font-semibold text-slate-200 truncate">
+                              {log.label}
+                            </div>
                           )}
-                          {log.mod !== 0 && (
-                            <span className="text-slate-400 text-[10px]">
-                              {log.mod > 0 ? `+${log.mod}` : log.mod}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-amber-400 font-bold">{log.die}</span>
+                            {log.rolls.length > 1 && (
+                              <span className="text-slate-500 text-[10px]">
+                                [{log.rolls.join(", ")}]
+                              </span>
+                            )}
+                            {log.mod !== 0 && (
+                              <span className="text-slate-400 text-[10px]">
+                                {log.mod > 0 ? `+${log.mod}` : log.mod}
+                              </span>
+                            )}
+                            {log.mode !== "normal" && (
+                              <span className="text-[9px] uppercase px-1 rounded bg-amber-500/15 text-amber-300">
+                                {log.mode === "advantage" ? "ADV" : "DIS"}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <span className="text-sm font-bold text-amber-200 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800/40">
+                        <span
+                          className={`text-sm font-bold px-2 py-0.5 rounded border flex-shrink-0 ${
+                            log.isCrit
+                              ? "text-emerald-300 bg-emerald-950/60 border-emerald-600/50"
+                              : log.isFumble
+                              ? "text-rose-300 bg-rose-950/60 border-rose-600/50"
+                              : "text-amber-200 bg-amber-950/40 border-amber-800/40"
+                          }`}
+                        >
                           = {log.total}
                         </span>
                       </div>
@@ -311,10 +340,18 @@ export function DiceInitiativeDrawer({
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
+                    onClick={() => seedPartyInitiative(partyMembers)}
+                    className="p-1.5 rounded bg-fantasy-800 hover:bg-fantasy-700 border border-fantasy-700 text-slate-300 hover:text-amber-300 transition"
+                    title="Reset & re-roll party initiative"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleSortInitiative}
                     className="px-2 py-1 text-[11px] rounded bg-fantasy-800 hover:bg-fantasy-700 border border-fantasy-700"
                   >
-                    Sort High-Low
+                    Sort
                   </button>
                   <button
                     type="button"
