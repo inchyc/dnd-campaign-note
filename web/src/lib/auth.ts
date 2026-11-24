@@ -78,11 +78,21 @@ try {
   bundledManifest = null;
 }
 
+const USERS_CACHE_TTL = 15 * 1000;
+const usersCache = new WeakMap<Storage, { at: number; users: HubUser[] }>();
+
 export async function loadUsers(storage: Storage): Promise<HubUser[]> {
+  const hit = usersCache.get(storage);
+  if (hit && Date.now() - hit.at < USERS_CACHE_TTL) {
+    return hit.users;
+  }
   try {
     const raw = await storage.read(USERS_PATH);
     const parsed = JSON.parse(raw) as UsersFile;
-    if (parsed.users && parsed.users.length > 0) return parsed.users;
+    if (parsed.users && parsed.users.length > 0) {
+      usersCache.set(storage, { at: Date.now(), users: parsed.users });
+      return parsed.users;
+    }
   } catch (err) {
     console.warn("Storage read failed for users.json, falling back to manifest/defaults:", err);
   }
@@ -94,7 +104,9 @@ export async function loadUsers(storage: Storage): Promise<HubUser[]> {
 }
 
 export async function saveUsers(storage: Storage, users: HubUser[]) {
+  usersCache.delete(storage);
   await storage.write(USERS_PATH, JSON.stringify({ users }, null, 2));
+  usersCache.set(storage, { at: Date.now(), users });
 }
 
 export function publicUser(u: HubUser) {

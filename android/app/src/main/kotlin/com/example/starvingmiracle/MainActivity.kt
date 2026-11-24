@@ -5,11 +5,15 @@ import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.view.Gravity
+import android.view.View
 import android.webkit.*
 import android.widget.FrameLayout
+import android.widget.ProgressBar
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.core.app.ActivityCompat
@@ -47,12 +51,31 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(Color.parseColor("#0e1117"))
         }
 
-        webView = WebView(this)
+        webView = WebView(this).apply {
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
         rootLayout.addView(
             webView,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+
+        val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            progressTintList = ColorStateList.valueOf(Color.parseColor("#f59e0b"))
+            progressBackgroundTintList = ColorStateList.valueOf(Color.parseColor("#1e2433"))
+            visibility = View.VISIBLE
+        }
+        val density = resources.displayMetrics.density
+        rootLayout.addView(
+            progressBar,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                (3 * density).toInt(),
+                Gravity.TOP
             )
         )
         setContentView(rootLayout)
@@ -115,6 +138,18 @@ class MainActivity : ComponentActivity() {
         }
 
         webView.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                super.onProgressChanged(view, newProgress)
+                if (newProgress >= 100) {
+                    progressBar.visibility = View.GONE
+                } else {
+                    if (progressBar.visibility != View.VISIBLE) {
+                        progressBar.visibility = View.VISIBLE
+                    }
+                    progressBar.progress = newProgress
+                }
+            }
+
             // Automatically grant web audio recording permissions for Audio Scribe
             override fun onPermissionRequest(request: PermissionRequest?) {
                 request?.grant(request.resources)

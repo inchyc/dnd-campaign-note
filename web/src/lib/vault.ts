@@ -119,10 +119,12 @@ try {
 }
 
 const cache = new Map<string, { at: number; notes: IndexedNote[] }>();
-const TTL = 3 * 1000; // short TTL: serverless instances do not share invalidation
+const metaCache = new Map<string, { at: number; notes: IndexedNote[] }>();
+const TTL = 15 * 1000; // 15s TTL; invalidated immediately on local writes
 
 export function invalidateIndex(campaignId: string) {
   cache.delete(campaignId);
+  metaCache.delete(campaignId);
 }
 
 export function updateIndexedNote(campaignId: string, filePath: string, newRaw: string) {
@@ -144,10 +146,79 @@ export function updateIndexedNote(campaignId: string, filePath: string, newRaw: 
     if (existing) updateEntry(existing);
   }
 
+  const metaHit = metaCache.get(campaignId);
+  if (metaHit) {
+    const existing = metaHit.notes.find((n) => n.path === filePath);
+    if (existing) {
+      existing.frontmatter = fm;
+      if (fm.status !== undefined) existing.status = String(fm.status);
+      if (fm.priority !== undefined) existing.priority = String(fm.priority);
+      existing.summary = firstSummary(parsed.content);
+    }
+  }
+
   if (bundledManifest?.notes) {
     const existing = (bundledManifest.notes as IndexedNote[]).find((n) => n.path === filePath);
     if (existing) updateEntry(existing);
   }
+}
+
+function mapSupabaseRow(row: any, includeBody: boolean): IndexedNote {
+  return {
+    path: row.path,
+    title: row.title,
+    category: row.category as Category,
+    sub: row.subcategory || undefined,
+    summary: row.summary || "",
+    status: row.status,
+    faction: row.frontmatter?.faction?.replace(/\[\[|\]\]/g, ""),
+    location: row.frontmatter?.location?.replace(/\[\[|\]\]/g, ""),
+    priority: row.priority,
+    secret: row.visibility === "dm",
+    revealed: row.frontmatter?.revealed === true || row.frontmatter?.revealed === "true",
+    owner: row.character || row.frontmatter?.owner,
+    visibleToParty: row.visibility === "party" || row.frontmatter?.visible_to_party === true,
+    playerField: row.frontmatter?.player,
+    mtime: Number(row.mtime) || Date.now(),
+    raw: includeBody ? row.raw_content || "" : "",
+    body: includeBody ? row.body || "" : "",
+    frontmatter: row.frontmatter || {},
+  };
+}
+
+/**
+ * Lightweight metadata-only index (skips raw_content and body in Supabase queries).
+ * Use this for list/dashboard/party views where full markdown text is not needed.
+ */
+export async function loadIndexMeta(ctx: Pick<Ctx, "campaign" | "storage">, forceFresh = false): Promise<IndexedNote[]> {
+  const fullHit = cache.get(ctx.campaign.id);
+  if (!forceFresh && fullHit && Date.now() - fullHit.at < TTL) return fullHit.notes;
+
+  const hit = metaCache.get(ctx.campaign.id);
+  if (!forceFresh && hit && Date.now() - hit.at < TTL) return hit.notes;
+
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase
+        .from("notes")
+        .select("path, title, category, subcategory, summary, status, priority, visibility, character, frontmatter, mtime")
+        .eq("campaign_id", ctx.campaign.id);
+
+      if (!error && data && data.length > 0) {
+        const notes: IndexedNote[] = data
+          .filter((row) => row.path.toLowerCase().endsWith(".md"))
+          .map((row) => mapSupabaseRow(row, false));
+        notes.sort((a, b) => a.title.localeCompare(b.title));
+        metaCache.set(ctx.campaign.id, { at: Date.now(), notes });
+        return notes;
+      }
+    } catch (err) {
+      console.warn("Supabase loadIndexMeta query failed, falling back:", err);
+    }
+  }
+
+  return loadIndex(ctx, forceFresh);
 }
 
 export async function loadIndex(ctx: Pick<Ctx, "campaign" | "storage">, forceFresh = false): Promise<IndexedNote[]> {
@@ -165,28 +236,10 @@ export async function loadIndex(ctx: Pick<Ctx, "campaign" | "storage">, forceFre
 
       if (!error && data && data.length > 0) {
         const mdRows = data.filter((row) => row.path.toLowerCase().endsWith(".md"));
-        const notes: IndexedNote[] = mdRows.map((row) => ({
-          path: row.path,
-          title: row.title,
-          category: row.category as Category,
-          sub: row.subcategory || undefined,
-          summary: row.summary || "",
-          status: row.status,
-          faction: row.frontmatter?.faction?.replace(/\[\[|\]\]/g, ""),
-          location: row.frontmatter?.location?.replace(/\[\[|\]\]/g, ""),
-          priority: row.priority,
-          secret: row.visibility === "dm",
-          revealed: row.frontmatter?.revealed === true || row.frontmatter?.revealed === "true",
-          owner: row.character || row.frontmatter?.owner,
-          visibleToParty: row.visibility === "party" || row.frontmatter?.visible_to_party === true,
-          playerField: row.frontmatter?.player,
-          mtime: Number(row.mtime) || Date.now(),
-          raw: row.raw_content,
-          body: row.body,
-          frontmatter: row.frontmatter || {},
-        }));
+        const notes: IndexedNote[] = mdRows.map((row) => mapSupabaseRow(row, true));
         notes.sort((a, b) => a.title.localeCompare(b.title));
         cache.set(ctx.campaign.id, { at: Date.now(), notes });
+        metaCache.set(ctx.campaign.id, { at: Date.now(), notes });
         return notes;
       }
     } catch (err) {
@@ -335,6 +388,11 @@ export function canEdit(ctx: Ctx, n: NoteMeta): boolean {
 
 export async function visibleNotes(ctx: Ctx, forceFresh = false, includeArchived = false): Promise<IndexedNote[]> {
   const all = await loadIndex(ctx, forceFresh);
+  return all.filter((n) => canView(ctx, n, all, includeArchived));
+}
+
+export async function visibleNotesMeta(ctx: Ctx, forceFresh = false, includeArchived = false): Promise<IndexedNote[]> {
+  const all = await loadIndexMeta(ctx, forceFresh);
   return all.filter((n) => canView(ctx, n, all, includeArchived));
 }
 

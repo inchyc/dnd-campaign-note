@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Users,
   MapPin,
@@ -31,6 +31,7 @@ import {
   ChevronUp,
   Smartphone,
   Download,
+  Menu,
 } from "lucide-react";
 import { LoginView } from "@/components/LoginView";
 import { NoteModal } from "@/components/NoteModal";
@@ -52,6 +53,7 @@ import { ManageRolesModal } from "@/components/ManageRolesModal";
 import { FeedbackProvider, useFeedback } from "@/components/FeedbackContext";
 import { TableToolsProvider, useTableTools } from "@/components/TableToolsContext";
 import { AppSidebar, HubTabId } from "@/components/AppSidebar";
+import { MobileNavDrawer } from "@/components/MobileNavDrawer";
 import { setCachedData, getCachedData } from "@/lib/cache";
 import { getStatusBadge } from "@/lib/statusConfig";
 import { applyJournalToNotes } from "@/lib/mutationJournal";
@@ -120,6 +122,7 @@ function CampaignHubInner() {
   const [isRecapExpanded, setIsRecapExpanded] = useState(true);
 
   // Category notes cache
+  const notesByCategoryRef = useRef<Record<string, NoteMeta[]>>({});
   const [categoryNotes, setCategoryNotes] = useState<NoteMeta[]>([]);
   const [categoryLoading, setCategoryLoading] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
@@ -136,6 +139,7 @@ function CampaignHubInner() {
   const [createNoteCategory, setCreateNoteCategory] = useState("npc");
   const [isCreateCampaignOpen, setIsCreateCampaignOpen] = useState(false);
   const [isManageRolesOpen, setIsManageRolesOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isPlayerViewActive, setIsPlayerViewActive] = useState(false);
 
   // Check login on mount
@@ -205,7 +209,11 @@ function CampaignHubInner() {
         closeDrawer();
         return true;
       }
-      // Tier 4: Campaign Menu Dropdown
+      // Tier 4: Campaign Menu Dropdown & Mobile Nav Drawer
+      if (isMobileMenuOpen) {
+        setIsMobileMenuOpen(false);
+        return true;
+      }
       if (isCampaignMenuOpen) {
         setIsCampaignMenuOpen(false);
         return true;
@@ -221,7 +229,7 @@ function CampaignHubInner() {
     return () => {
       (window as any).__handleAndroidBack = undefined;
     };
-  }, [selectedNotePath, isCreateNoteOpen, isCreateCampaignOpen, isSearchOpen, isDrawerOpen, closeDrawer, isCampaignMenuOpen, activeTab]);
+  }, [selectedNotePath, isCreateNoteOpen, isCreateCampaignOpen, isSearchOpen, isDrawerOpen, closeDrawer, isMobileMenuOpen, isCampaignMenuOpen, activeTab]);
 
   // Fetch Home dashboard
   const fetchHome = useCallback(async () => {
@@ -255,31 +263,47 @@ function CampaignHubInner() {
     }
   }, [currentUser]);
 
-  // Fetch Category Notes (NPCs, Locations, Lore, Quests)
+  // Fetch Category Notes (NPCs, Locations, Lore, Quests) with instant stale-while-revalidate
   const fetchCategory = useCallback(async (cat: string) => {
-    setCategoryLoading(true);
     setFilterQuery("");
     setFilterSub("all");
     setStatusFilter("all");
+
+    const memHit = notesByCategoryRef.current[cat];
+    const diskHit = memHit ? null : getCachedData<NoteMeta[]>(`cat_${cat}`);
+    const seed = memHit || (diskHit?.data ? applyJournalToNotes(diskHit.data) : null);
+
+    if (seed) {
+      setCategoryNotes(seed);
+      setCategoryLoading(false);
+    } else {
+      setCategoryLoading(true);
+    }
+
     try {
       const res = await fetch(`/api/notes?category=${cat}&archived=1`);
       const data = await res.json();
       if (data.success) {
         const merged = applyJournalToNotes<NoteMeta>(data.notes || []);
+        notesByCategoryRef.current[cat] = merged;
         setCategoryNotes(merged);
         setCachedData(`cat_${cat}`, merged);
       }
     } catch (e) {
-      console.warn(`Loading cached notes for ${cat}`, e);
-      const cached = getCachedData<NoteMeta[]>(`cat_${cat}`);
-      if (cached?.data) setCategoryNotes(applyJournalToNotes(cached.data));
+      console.warn(`Using cached notes for ${cat}`, e);
     } finally {
       setCategoryLoading(false);
     }
   }, []);
 
-  // Fetch Party & Loot
+  // Fetch Party & Loot with instant stale-while-revalidate
   const fetchParty = useCallback(async () => {
+    const cached = getCachedData<any>("party_data");
+    if (cached?.data) {
+      const c = cached.data;
+      if (c.characters) c.characters = applyJournalToNotes(c.characters);
+      setPartyData((prev: any) => prev || c);
+    }
     try {
       const res = await fetch("/api/party");
       const data = await res.json();
@@ -290,14 +314,36 @@ function CampaignHubInner() {
       }
     } catch (e) {
       console.warn("Loading cached party data", e);
-      const cached = getCachedData<any>("party_data");
-      if (cached?.data) {
-        const c = cached.data;
-        if (c.characters) c.characters = applyJournalToNotes(c.characters);
-        setPartyData(c);
-      }
     }
   }, []);
+
+  // Quietly prefetch common categories in background after sign-in for instant tab switching
+  useEffect(() => {
+    if (!currentUser) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const cats = ["npc", "location", "lore", "quest"];
+      for (const cat of cats) {
+        if (cancelled) break;
+        if (notesByCategoryRef.current[cat]) continue;
+        try {
+          const res = await fetch(`/api/notes?category=${cat}&archived=1`);
+          const data = await res.json();
+          if (!cancelled && data.success) {
+            const merged = applyJournalToNotes<NoteMeta>(data.notes || []);
+            notesByCategoryRef.current[cat] = merged;
+            setCachedData(`cat_${cat}`, merged);
+          }
+        } catch {
+          // ignore background prefetch errors
+        }
+      }
+    }, 800);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [currentUser]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -576,6 +622,17 @@ function CampaignHubInner() {
 
           {/* Right Actions: 5e.tools, Table Tools, User Profile, Sign Out */}
           <div className="flex items-center gap-2">
+            {/* Mobile drawer menu button */}
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="md:hidden p-2 rounded-lg bg-fantasy-800 text-amber-300 hover:bg-fantasy-700 border border-fantasy-700 transition"
+              title="Open navigation menu"
+              aria-label="Open navigation menu"
+            >
+              <Menu className="w-4 h-4" />
+            </button>
+
             {/* Mobile search icon */}
             <button
               type="button"
@@ -1285,68 +1342,75 @@ function CampaignHubInner() {
       </main>
       </div>
 
-      {/* Mobile Bottom Navigation Bar (Clean Ergonomic Tabs) */}
+      {/* Mobile Slide-Out Navigation Drawer (mirrors desktop AppSidebar) */}
+      <MobileNavDrawer
+        isOpen={isMobileMenuOpen}
+        onClose={() => setIsMobileMenuOpen(false)}
+        activeTab={activeTab}
+        onSelectTab={(tab) => setActiveTab(tab)}
+        isScribe={isScribe}
+        onNewNote={() => handleOpenCreateNote(activeTab)}
+        onOpenTableTools={() => openDrawer("dice")}
+        activeQuestCount={
+          homeData?.quests?.filter((q) => {
+            const b = questBucket(q.status);
+            return b === "open" || b === "active";
+          }).length
+        }
+        campaignName={currentCampaign?.name}
+      />
+
+      {/* Mobile Bottom Navigation Bar (Streamlined 5-tab bar + Menu drawer) */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-fantasy-900/95 backdrop-blur-md border-t border-fantasy-700/80 px-2 pt-2 pb-safe flex items-center justify-around text-[10px]">
         {[
           {
             id: "home",
             label: "Home",
             icon: Sparkles,
-            active: activeTab === "home",
-            onClick: () => setActiveTab("home"),
+            active: activeTab === "home" && !isMobileMenuOpen,
+            onClick: () => {
+              setIsMobileMenuOpen(false);
+              setActiveTab("home");
+            },
           },
           {
             id: "sheet",
             label: "Sheet",
             icon: Shield,
-            active: activeTab === "sheet",
-            onClick: () => setActiveTab("sheet"),
-          },
-          {
-            id: "sessions",
-            label: "Sessions",
-            icon: Calendar,
-            active: activeTab === "sessions",
-            onClick: () => setActiveTab("sessions"),
+            active: activeTab === "sheet" && !isMobileMenuOpen,
+            onClick: () => {
+              setIsMobileMenuOpen(false);
+              setActiveTab("sheet");
+            },
           },
           {
             id: "quests",
             label: "Quests",
             icon: Compass,
-            active: activeTab === "quests",
-            onClick: () => setActiveTab("quests"),
-          },
-          {
-            id: "codex",
-            label: "Codex",
-            icon: BookOpen,
-            active: ["npcs", "locations", "lore"].includes(activeTab),
+            active: activeTab === "quests" && !isMobileMenuOpen,
             onClick: () => {
-              if (!["npcs", "locations", "lore"].includes(activeTab)) {
-                setActiveTab("npcs");
-              }
+              setIsMobileMenuOpen(false);
+              setActiveTab("quests");
             },
-          },
-          {
-            id: "party",
-            label: "Party",
-            icon: Backpack,
-            active: activeTab === "party",
-            onClick: () => setActiveTab("party"),
           },
           {
             id: "scratchpad",
             label: "Notes",
             icon: Edit3,
-            active: ["scratchpad", "audio", "reviews"].includes(activeTab),
-            onClick: () => setActiveTab("scratchpad"),
+            active: activeTab === "scratchpad" && !isMobileMenuOpen,
+            onClick: () => {
+              setIsMobileMenuOpen(false);
+              setActiveTab("scratchpad");
+            },
           },
           {
-            id: "sync",
-            label: "Sync",
-            icon: RefreshCw,
-            active: activeTab === "sync",
-            onClick: () => setActiveTab("sync"),
+            id: "menu",
+            label: "Menu",
+            icon: Menu,
+            active:
+              isMobileMenuOpen ||
+              ["sessions", "npcs", "locations", "lore", "party", "audio", "reviews", "sync"].includes(activeTab),
+            onClick: () => setIsMobileMenuOpen((prev) => !prev),
           },
         ].map((tab) => {
           const Icon = tab.icon;

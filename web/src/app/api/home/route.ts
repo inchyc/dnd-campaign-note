@@ -1,7 +1,7 @@
 import { handle, loadUsers, requireCtx } from "@/lib/auth";
 import { currentSession } from "@/lib/scratch";
 import { normalizeQuestStatus } from "@/lib/questStatus";
-import { loadIndex, ownsCharacterNote, toMeta, visibleNotes } from "@/lib/vault";
+import { loadIndexMeta, ownsCharacterNote, toMeta, visibleNotesMeta } from "@/lib/vault";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +15,11 @@ function cleanPriority(p?: string): string {
 
 export const GET = handle(async () => {
   const ctx = await requireCtx();
-  const visible = await visibleNotes(ctx);
-  const all = await loadIndex(ctx);
-  const users = await loadUsers(ctx.storage);
+  const [visible, all, users] = await Promise.all([
+    visibleNotesMeta(ctx),
+    loadIndexMeta(ctx),
+    loadUsers(ctx.storage),
+  ]);
 
   let recap: unknown = null;
   if (await ctx.storage.exists(".hub/recap.json")) {

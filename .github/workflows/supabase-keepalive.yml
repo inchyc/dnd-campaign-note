@@ -1,0 +1,16 @@
+name: Supabase Keep-Alive
+
+on:
+  schedule:
+    # Ping every 3 days at 12:00 UTC to prevent Supabase free-tier 7-day auto-pause
+    - cron: "0 12 */3 * *"
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /api/health
+        run: |
+          curl --fail --silent --show-error https://dnd-campaign-notes-hub.vercel.app/api/health
+          echo ""

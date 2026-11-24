@@ -1,5 +1,5 @@
 import { handle, requireCtx } from "@/lib/auth";
-import { Category, displayText, normKey, toMeta, visibleNotes } from "@/lib/vault";
+import { Category, displayText, normKey, toMeta, visibleNotes, visibleNotesMeta } from "@/lib/vault";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +11,7 @@ export const GET = handle(async (req: Request) => {
   const archivedMode = url.searchParams.get("archived") || "all";
 
   const includeArchivedInLoad = archivedMode === "only" || archivedMode === "all" || archivedMode === "1";
-  const allVisible = await visibleNotes(ctx, forceFresh, includeArchivedInLoad);
+  const allVisible = await visibleNotesMeta(ctx, forceFresh, includeArchivedInLoad);
 
   const notes = allVisible.filter((n) => {
     if (cat && n.category !== cat) return false;

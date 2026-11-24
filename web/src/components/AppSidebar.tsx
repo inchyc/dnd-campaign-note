@@ -43,11 +43,52 @@ interface AppSidebarProps {
   activeQuestCount?: number;
 }
 
-interface NavItem {
+export interface NavItem {
   id: HubTabId;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: number;
+}
+
+export interface NavGroup {
+  title: string;
+  items: NavItem[];
+}
+
+export function getNavGroups(isScribe: boolean, activeQuestCount?: number): NavGroup[] {
+  return [
+    {
+      title: "Table",
+      items: [
+        { id: "home", label: "Dashboard", icon: Sparkles },
+        { id: "sheet", label: "Character Sheet", icon: Shield },
+        { id: "party", label: "Party & Camp Loot", icon: Backpack },
+        { id: "scratchpad", label: "Live Scratchpad", icon: Edit3 },
+      ],
+    },
+    {
+      title: "Codex",
+      items: [
+        { id: "sessions", label: "Session Notes", icon: Calendar },
+        { id: "npcs", label: "NPCs", icon: Users },
+        { id: "locations", label: "Locations", icon: MapPin },
+        { id: "lore", label: "Lore", icon: BookOpen },
+        { id: "quests", label: "Quests & Rumors", icon: Compass, badge: activeQuestCount },
+      ],
+    },
+    {
+      title: "Scribe & Vault",
+      items: [
+        ...(isScribe
+          ? [
+              { id: "audio" as HubTabId, label: "Audio Scribe", icon: Mic },
+              { id: "reviews" as HubTabId, label: "AI Reviews", icon: Bot },
+            ]
+          : []),
+        { id: "sync", label: "Sync & Vault", icon: RefreshCw },
+      ],
+    },
+  ];
 }
 
 export function AppSidebar({
@@ -81,39 +122,7 @@ export function AppSidebar({
     });
   };
 
-  const groups: Array<{ title: string; items: NavItem[] }> = [
-    {
-      title: "Table",
-      items: [
-        { id: "home", label: "Dashboard", icon: Sparkles },
-        { id: "sheet", label: "Character Sheet", icon: Shield },
-        { id: "party", label: "Party & Camp Loot", icon: Backpack },
-        { id: "scratchpad", label: "Live Scratchpad", icon: Edit3 },
-      ],
-    },
-    {
-      title: "Codex",
-      items: [
-        { id: "sessions", label: "Session Notes", icon: Calendar },
-        { id: "npcs", label: "NPCs", icon: Users },
-        { id: "locations", label: "Locations", icon: MapPin },
-        { id: "lore", label: "Lore", icon: BookOpen },
-        { id: "quests", label: "Quests & Rumors", icon: Compass, badge: activeQuestCount },
-      ],
-    },
-    {
-      title: "Scribe & Vault",
-      items: [
-        ...(isScribe
-          ? [
-              { id: "audio" as HubTabId, label: "Audio Scribe", icon: Mic },
-              { id: "reviews" as HubTabId, label: "AI Reviews", icon: Bot },
-            ]
-          : []),
-        { id: "sync", label: "Sync & Vault", icon: RefreshCw },
-      ],
-    },
-  ];
+  const groups = getNavGroups(isScribe, activeQuestCount);
 
   return (
     <aside

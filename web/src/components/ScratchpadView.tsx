@@ -23,6 +23,7 @@ import {
 import { SessionQuickRef } from "./SessionQuickRef";
 import { WikiLinkTextarea } from "./WikiLinkTextarea";
 import { useFeedback } from "./FeedbackContext";
+import { getCachedData, setCachedData } from "@/lib/cache";
 
 interface ScratchLine {
   id: string;
@@ -171,6 +172,11 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
         const sortedShared = (data.shared || []).slice().sort((a: ScratchLine, b: ScratchLine) => b.at - a.at);
         setMyLines(sortedMine);
         setTableLines(sortedShared);
+        setCachedData("scratchpad_state", {
+          session: data.session,
+          mine: sortedMine,
+          shared: sortedShared,
+        });
       }
     } catch (e) {
       console.error("Failed to load scratchpad", e);
@@ -180,6 +186,16 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
   }, []);
 
   useEffect(() => {
+    const cached = getCachedData<{ session: string; mine: ScratchLine[]; shared: ScratchLine[] }>("scratchpad_state");
+    if (cached?.data) {
+      if (cached.data.session) {
+        setSessionDate(cached.data.session);
+        setCollateDate((prev) => prev || cached.data.session);
+      }
+      setMyLines(cached.data.mine || []);
+      setTableLines(cached.data.shared || []);
+      setLoading(false);
+    }
     fetchScratchpad();
     const interval = setInterval(fetchScratchpad, 10000); // 10s auto-refresh
     return () => clearInterval(interval);

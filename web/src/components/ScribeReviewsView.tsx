@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
 import { useFeedback } from "./FeedbackContext";
+import { getCachedData, setCachedData } from "@/lib/cache";
 
 interface SessionReview {
   id: string;
@@ -55,30 +56,58 @@ export function ScribeReviewsView() {
   const { toast, confirm: confirmDialog } = useFeedback();
   const [reviews, setReviews] = useState<SessionReview[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [previewItem, setPreviewItem] = useState<PreviewItem | null>(null);
   const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
 
-  const fetchReviews = async () => {
-    setLoading(true);
+  const fetchReviews = async (background = false) => {
+    if (background) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+    setError(null);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     try {
-      const res = await fetch("/api/scribe/reviews");
+      const res = await fetch("/api/scribe/reviews", { signal: controller.signal });
       const data = await res.json();
-      if (data.success) {
-        setReviews(data.reviews || []);
-        if (data.reviews?.length > 0 && !selectedReviewId) {
-          setSelectedReviewId(data.reviews[0].id);
-        }
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `Failed to load reviews (HTTP ${res.status})`);
       }
-    } catch (e) {
+      const next = data.reviews || [];
+      setReviews(next);
+      setCachedData("scribe_reviews", next);
+      if (next.length > 0 && !selectedReviewId) {
+        setSelectedReviewId(next[0].id);
+      }
+    } catch (e: any) {
+      const msg =
+        e?.name === "AbortError"
+          ? "Request timed out while loading AI reviews. Please try again."
+          : e?.message || "Failed to load AI reviews.";
       console.error("Failed to load reviews", e);
+      setError(msg);
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    fetchReviews();
+    const cached = getCachedData<SessionReview[]>("scribe_reviews");
+    if (cached?.data) {
+      setReviews(cached.data);
+      if (cached.data.length > 0) setSelectedReviewId(cached.data[0].id);
+      setLoading(false);
+      fetchReviews(true);
+    } else {
+      fetchReviews(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleApplyReview = async (id: string) => {
@@ -125,18 +154,37 @@ export function ScribeReviewsView() {
 
         <button
           type="button"
-          onClick={fetchReviews}
-          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-fantasy-800 hover:bg-fantasy-700 border border-fantasy-700 text-slate-300 transition"
+          onClick={() => fetchReviews(false)}
+          disabled={loading || refreshing}
+          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-fantasy-800 hover:bg-fantasy-700 border border-fantasy-700 text-slate-300 transition flex items-center gap-1.5 disabled:opacity-50"
         >
+          {refreshing && <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />}
           Refresh Staged Reviews
         </button>
       </div>
 
-      {loading ? (
-        <div className="py-20 flex justify-center text-slate-500">
-          <Loader2 className="w-6 h-6 animate-spin text-amber-400" />
+      {error && (
+        <div className="p-4 rounded-xl bg-rose-950/50 border border-rose-700/60 text-rose-200 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5 text-xs">
+            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+            <span>{error}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => fetchReviews(false)}
+            className="px-3 py-1 rounded-lg bg-rose-800/60 hover:bg-rose-700/60 text-xs font-semibold text-white transition flex-shrink-0"
+          >
+            Retry
+          </button>
         </div>
-      ) : reviews.length === 0 ? (
+      )}
+
+      {loading && reviews.length === 0 ? (
+        <div className="py-20 flex flex-col items-center justify-center gap-3 text-slate-500">
+          <Loader2 className="w-6 h-6 animate-spin text-amber-400" />
+          <span className="text-xs">Loading staged AI reviews...</span>
+        </div>
+      ) : !error && reviews.length === 0 ? (
         <div className="py-20 text-center text-slate-500 space-y-2 bg-fantasy-900/40 rounded-xl border border-fantasy-700">
           <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-500 opacity-60" />
           <p className="text-sm font-serif">All session notes have been processed and applied!</p>

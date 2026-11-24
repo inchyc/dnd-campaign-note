@@ -19,6 +19,7 @@ import { MarkdownView } from "./MarkdownView";
 import { SessionQuickRef } from "./SessionQuickRef";
 import { useFeedback } from "./FeedbackContext";
 import { applyJournalToBody } from "@/lib/mutationJournal";
+import { getCachedData, setCachedData } from "@/lib/cache";
 
 interface SessionNoteMeta {
   path: string;
@@ -51,8 +52,8 @@ export function SessionNotesView({
   const [aiRunning, setAiRunning] = useState(false);
   const [aiResult, setAiResult] = useState<string | null>(null);
 
-  const fetchSessionList = async () => {
-    setLoading(true);
+  const fetchSessionList = async (hasCache = false) => {
+    if (!hasCache) setLoading(true);
     try {
       const res = await fetch("/api/notes?category=session");
       const data = await res.json();
@@ -73,6 +74,7 @@ export function SessionNotesView({
           });
 
         setSessions(parsed);
+        setCachedData("session_list", parsed);
         if (parsed.length > 0 && !selectedSessionPath) {
           setSelectedSessionPath(parsed[0].path);
         }
@@ -85,14 +87,30 @@ export function SessionNotesView({
   };
 
   useEffect(() => {
-    fetchSessionList();
+    const cached = getCachedData<SessionNoteMeta[]>("session_list");
+    if (cached?.data && cached.data.length > 0) {
+      setSessions(cached.data);
+      setSelectedSessionPath((prev) => prev || cached.data[0].path);
+      setLoading(false);
+      fetchSessionList(true);
+    } else {
+      fetchSessionList(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!selectedSessionPath) return;
 
     let cancelled = false;
-    setContentLoading(true);
+    const cacheKey = `session_note_${selectedSessionPath}`;
+    const cachedNote = getCachedData<string>(cacheKey);
+    if (cachedNote?.data !== undefined) {
+      setNoteContent(applyJournalToBody(selectedSessionPath, cachedNote.data));
+      setContentLoading(false);
+    } else {
+      setContentLoading(true);
+    }
     setAiResult(null);
 
     fetch(`/api/note?path=${encodeURIComponent(selectedSessionPath)}`)
@@ -100,6 +118,7 @@ export function SessionNotesView({
       .then((data) => {
         if (!cancelled) {
           const body = data.note?.body || data.note?.raw || data.content || "";
+          setCachedData(cacheKey, body);
           const patched = applyJournalToBody(selectedSessionPath, body);
           setNoteContent(patched);
         }
@@ -181,7 +200,7 @@ export function SessionNotesView({
           </button>
           <button
             type="button"
-            onClick={fetchSessionList}
+            onClick={() => fetchSessionList(false)}
             className="p-1.5 rounded-lg bg-fantasy-800 text-slate-400 hover:text-slate-200 border border-fantasy-700 transition"
             title="Refresh sessions"
           >

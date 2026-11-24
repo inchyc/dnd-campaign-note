@@ -2,6 +2,7 @@ import matter from "gray-matter";
 import type { Ctx } from "./auth";
 import { cleanTitle, invalidateIndex, loadIndex } from "./vault";
 import { walk, withLock } from "./storage";
+import { getSupabaseAdmin, isSupabaseConfigured } from "./supabaseClient";
 
 export interface SessionReview {
   id: string;
@@ -21,64 +22,148 @@ function section(content: string, heading: RegExp): string {
   return m ? m[1].trim() : "";
 }
 
-export async function readReviews(ctx: Ctx): Promise<SessionReview[]> {
-  const out: SessionReview[] = [];
-  for (const ent of await ctx.storage.list(REVIEW)) {
-    if (!ent.isDir) continue;
-    const dir = `${REVIEW}/${ent.name}`;
-    const summaryPath = `${dir}/00_SESSION_REVIEW.md`;
-    if (!(await ctx.storage.exists(summaryPath))) continue;
-    const parsed = matter(await ctx.storage.read(summaryPath));
-    const content = parsed.content;
+function parseReviewFromFiles(
+  id: string,
+  summaryRaw: string,
+  newFiles: Array<{ relPath: string; content: string }>,
+  updateFiles: Array<{ name: string; content: string }>
+): SessionReview {
+  const parsed = matter(summaryRaw);
+  const content = parsed.content;
 
-    const newEntities: SessionReview["newEntities"] = [];
-    for (const f of await walk(ctx.storage, `${dir}/New`)) {
-      if (!f.endsWith(".md")) continue;
-      const parts = f.split("/");
-      newEntities.push({
+  const newEntities: SessionReview["newEntities"] = newFiles
+    .filter((f) => f.relPath.endsWith(".md"))
+    .map((f) => {
+      const parts = f.relPath.split("/");
+      return {
         name: cleanTitle(parts[parts.length - 1].replace(/\.md$/, "")),
-        type: parts[parts.length - 2],
-        filePath: f.slice(dir.length + 1),
-        content: await ctx.storage.read(f),
-      });
-    }
+        type: parts[parts.length - 2] || "Note",
+        filePath: f.relPath,
+        content: f.content,
+      };
+    });
 
-    const updates: SessionReview["updates"] = [];
-    for (const f of await walk(ctx.storage, `${dir}/Updates`)) {
-      if (!f.endsWith(".md")) continue;
-      const p = matter(await ctx.storage.read(f));
+  const updates: SessionReview["updates"] = updateFiles
+    .filter((f) => f.name.endsWith(".md"))
+    .map((f) => {
+      const p = matter(f.content);
       const rationale = (p.content.match(/> \[!info\] Rationale\s*\r?\n> ([\s\S]+?)(?:\r?\n\r?\n|\r?\n###)/) || [])[1] || "";
       const append = (p.content.match(/### Content to Append \/ Update:\s*\r?\n([\s\S]+)$/) || [])[1] || p.content;
-      updates.push({
-        name: f.split("/").pop()!.replace(/^Update_/, "").replace(/\.md$/, ""),
+      return {
+        name: f.name.replace(/^Update_/, "").replace(/\.md$/, ""),
         targetFile: String(p.data.target_file || ""),
         statusUpdate: p.data.status_update ? String(p.data.status_update) : undefined,
         rationale: rationale.trim(),
         content: append.trim(),
-      });
-    }
-
-    const resolved = section(content, /### Resolved \/ Checked Off:\s*\r?\n([\s\S]+?)(?=\r?\n###|\r?\n##|$)/)
-      .split(/\r?\n/)
-      .filter((l) => l.trim().startsWith("- [x]"))
-      .map((l) => l.replace(/^\s*- \[x\]\s*/i, "").trim());
-    const newTasks = section(content, /### New Tasks \/ Leads:\s*\r?\n([\s\S]+?)(?=\r?\n###|\r?\n##|$)/)
-      .split(/\r?\n/)
-      .filter((l) => l.trim().startsWith("- [ ]"))
-      .map((l) => l.replace(/^\s*- \[ \]\s*/, "").trim());
-
-    out.push({
-      id: ent.name,
-      sessionName: String(parsed.data.session || ent.name.replace("Session_Notes_", "Session ")),
-      status: parsed.data.status === "applied" ? "applied" : "pending_review",
-      summary: section(content, /## 📖 Executive Summary\s*\r?\n([\s\S]+?)(?=\r?\n---|\r?\n## )/),
-      newEntities,
-      updates,
-      resolvedTasks: resolved,
-      newTasks,
+      };
     });
+
+  const resolved = section(content, /### Resolved \/ Checked Off:\s*\r?\n([\s\S]+?)(?=\r?\n###|\r?\n##|$)/)
+    .split(/\r?\n/)
+    .filter((l) => l.trim().startsWith("- [x]"))
+    .map((l) => l.replace(/^\s*- \[x\]\s*/i, "").trim());
+  const newTasks = section(content, /### New Tasks \/ Leads:\s*\r?\n([\s\S]+?)(?=\r?\n###|\r?\n##|$)/)
+    .split(/\r?\n/)
+    .filter((l) => l.trim().startsWith("- [ ]"))
+    .map((l) => l.replace(/^\s*- \[ \]\s*/, "").trim());
+
+  return {
+    id,
+    sessionName: String(parsed.data.session || id.replace("Session_Notes_", "Session ")),
+    status: parsed.data.status === "applied" ? "applied" : "pending_review",
+    summary: section(content, /## 📖 Executive Summary\s*\r?\n([\s\S]+?)(?=\r?\n---|\r?\n## )/),
+    newEntities,
+    updates,
+    resolvedTasks: resolved,
+    newTasks,
+  };
+}
+
+export async function readReviews(ctx: Ctx): Promise<SessionReview[]> {
+  // Fast path: batch-fetch all _Review/ rows in a single Supabase query
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase
+        .from("notes")
+        .select("path, raw_content")
+        .eq("campaign_id", ctx.campaign.id)
+        .like("path", `${REVIEW}/%`);
+
+      if (!error && data) {
+        const groups = new Map<
+          string,
+          {
+            summary?: string;
+            newFiles: Array<{ relPath: string; content: string }>;
+            updateFiles: Array<{ name: string; content: string }>;
+          }
+        >();
+
+        for (const row of data) {
+          const rest = row.path.slice(REVIEW.length + 1); // after "_Review/"
+          const slashIdx = rest.indexOf("/");
+          if (slashIdx <= 0) continue;
+          const id = rest.slice(0, slashIdx);
+          const subPath = rest.slice(slashIdx + 1);
+          let g = groups.get(id);
+          if (!g) {
+            g = { newFiles: [], updateFiles: [] };
+            groups.set(id, g);
+          }
+          if (subPath === "00_SESSION_REVIEW.md") {
+            g.summary = row.raw_content;
+          } else if (subPath.startsWith("New/")) {
+            g.newFiles.push({ relPath: subPath, content: row.raw_content });
+          } else if (subPath.startsWith("Updates/")) {
+            g.updateFiles.push({ name: subPath.split("/").pop() || subPath, content: row.raw_content });
+          }
+        }
+
+        const out: SessionReview[] = [];
+        for (const [id, g] of groups.entries()) {
+          if (!g.summary) continue;
+          out.push(parseReviewFromFiles(id, g.summary, g.newFiles, g.updateFiles));
+        }
+        return out.sort((a, b) => b.id.localeCompare(a.id));
+      }
+    } catch (err) {
+      console.warn("Supabase readReviews failed, falling back to storage:", err);
+    }
   }
-  return out.sort((a, b) => b.id.localeCompare(a.id));
+
+  // Fallback for LocalFs / GitHub storage: parallelize reads per directory
+  const entries = (await ctx.storage.list(REVIEW)).filter((e) => e.isDir);
+  const results = await Promise.all(
+    entries.map(async (ent): Promise<SessionReview | null> => {
+      const dir = `${REVIEW}/${ent.name}`;
+      const summaryPath = `${dir}/00_SESSION_REVIEW.md`;
+      if (!(await ctx.storage.exists(summaryPath))) return null;
+
+      const [summaryRaw, newPaths, updatePaths] = await Promise.all([
+        ctx.storage.read(summaryPath),
+        walk(ctx.storage, `${dir}/New`),
+        walk(ctx.storage, `${dir}/Updates`),
+      ]);
+
+      const [newFiles, updateFiles] = await Promise.all([
+        Promise.all(
+          newPaths
+            .filter((f) => f.endsWith(".md"))
+            .map(async (f) => ({ relPath: f.slice(dir.length + 1), content: await ctx.storage.read(f) }))
+        ),
+        Promise.all(
+          updatePaths
+            .filter((f) => f.endsWith(".md"))
+            .map(async (f) => ({ name: f.split("/").pop()!, content: await ctx.storage.read(f) }))
+        ),
+      ]);
+
+      return parseReviewFromFiles(ent.name, summaryRaw, newFiles, updateFiles);
+    })
+  );
+
+  return results.filter((r): r is SessionReview => r !== null).sort((a, b) => b.id.localeCompare(a.id));
 }
 
 export async function applyReview(ctx: Ctx, id: string): Promise<{ applied: string[]; skipped: string[] }> {

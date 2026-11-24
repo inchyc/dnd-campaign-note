@@ -41,6 +41,7 @@ import { CompanionSheet } from "./character/CompanionSheet";
 import { CharacterPortraitModal } from "./character/CharacterPortraitModal";
 import { useFeedback } from "./FeedbackContext";
 import { useTableTools } from "./TableToolsContext";
+import { getCachedData, setCachedData } from "@/lib/cache";
 import { EquipmentCatalogModal } from "./character/EquipmentCatalogModal";
 import { SpellCatalogModal } from "./character/SpellCatalogModal";
 import {
@@ -132,7 +133,14 @@ export function CharacterSheetView({
   // Load character sheet
   const fetchSheet = useCallback(async (userId: string) => {
     if (!userId) return;
-    setLoading(true);
+    const cacheKey = `char_sheet_${userId}`;
+    const cached = getCachedData<CharacterSheetData>(cacheKey);
+    if (cached?.data) {
+      setSheet(cached.data);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
       const res = await fetch(`/api/character/sheet?userId=${encodeURIComponent(userId)}`, {
@@ -141,14 +149,17 @@ export function CharacterSheetView({
       const data = await res.json();
       if (data.success && data.sheet) {
         setSheet(data.sheet);
+        setCachedData(cacheKey, data.sheet);
         if (data.isNew) {
           setShowWizard(true);
         }
-      } else {
+      } else if (!cached?.data) {
         setError(data.error || "Failed to load character sheet");
       }
     } catch (e: any) {
-      setError(e.message || "Failed to fetch character sheet");
+      if (!cached?.data) {
+        setError(e.message || "Failed to fetch character sheet");
+      }
     } finally {
       setLoading(false);
     }

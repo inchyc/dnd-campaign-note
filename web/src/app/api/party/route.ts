@@ -1,5 +1,5 @@
 import { handle, requireCtx } from "@/lib/auth";
-import { ownsCharacterNote, toMeta, visibleNotes } from "@/lib/vault";
+import { ownsCharacterNote, toMeta, visibleNotesMeta } from "@/lib/vault";
 
 export const dynamic = "force-dynamic";
 
@@ -7,7 +7,7 @@ const isUnclaimed = (o?: string) => !o || /^(party|unclaimed)$/i.test(o);
 
 export const GET = handle(async () => {
   const ctx = await requireCtx();
-  const visible = await visibleNotes(ctx);
+  const visible = await visibleNotesMeta(ctx);
 
   const characters = visible
     .filter((n) => n.category === "party")
