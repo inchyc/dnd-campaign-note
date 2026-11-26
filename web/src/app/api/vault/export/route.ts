@@ -12,10 +12,12 @@ export const GET = handle(async () => {
 
   for (const n of notes) {
     let raw = n.raw;
-    try {
-      raw = await ctx.storage.read(n.path);
-    } catch {
-      // fallback to in-memory n.raw
+    if (!raw) {
+      try {
+        raw = await ctx.storage.read(n.path);
+      } catch {
+        raw = "";
+      }
     }
     // Clean path and ensure it's relative to vault root
     const cleanPath = n.path.replace(/^\/+/, "");

@@ -27,9 +27,11 @@ import {
   CheckCircle2,
   Heart,
   Skull,
+  Copy,
+  RefreshCw,
 } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
-import { WikiLinkTextarea } from "./WikiLinkTextarea";
+import { WikiLinkTextarea, invalidateWikiLinkSuggestions } from "./WikiLinkTextarea";
 import { useFeedback } from "./FeedbackContext";
 import { normalizeQuestStatus } from "@/lib/questStatus";
 import { getCachedData, setCachedData } from "@/lib/cache";
@@ -107,6 +109,8 @@ export function NoteModal({
   const [editViewMode, setEditViewMode] = useState<"write" | "split" | "preview">("write");
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [recoveredDraft, setRecoveredDraft] = useState<string | null>(null);
+  const [editConflict, setEditConflict] = useState(false);
 
   // Player note state
   const [playerNoteText, setPlayerNoteText] = useState("");
@@ -119,8 +123,10 @@ export function NoteModal({
   const fetchNote = useCallback(async (notePath: string) => {
     setLoading(true);
     setError(null);
+    setEditConflict(false);
+    setRecoveredDraft(null);
     try {
-      const res = await fetch(`/api/note?path=${encodeURIComponent(notePath)}`);
+      const res = await fetch(`/api/note?path=${encodeURIComponent(notePath)}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.error || "Failed to load note");
@@ -141,8 +147,22 @@ export function NoteModal({
         },
       };
       setNoteData(resolvedNote);
-      setEditContent(resolvedNote.raw || resolvedNote.body);
+      const serverText = resolvedNote.raw || resolvedNote.body;
+      setEditContent(serverText);
       setCachedData("note_" + notePath, resolvedNote);
+
+      try {
+        const savedDraft = localStorage.getItem(`dnd_note_draft_${notePath}`);
+        if (savedDraft && savedDraft !== serverText) {
+          setRecoveredDraft(savedDraft);
+        }
+        const savedPlayerDraft = localStorage.getItem(`dnd_player_note_draft_${notePath}`);
+        if (savedPlayerDraft) {
+          setPlayerNoteText(savedPlayerDraft);
+        }
+      } catch {
+        /* ignore */
+      }
     } catch (err: any) {
       const cached = getCachedData<any>("note_" + notePath);
       if (cached?.data) {
@@ -458,7 +478,7 @@ export function NoteModal({
   };
 
   // Handle saving raw markdown
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = useCallback(async (force = false) => {
     if (!currentPath || !noteData) return;
     setIsSaving(true);
     try {
@@ -469,13 +489,27 @@ export function NoteModal({
           path: currentPath,
           content: editContent,
           baseMtime: noteData.mtime,
+          force,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409 && data.conflict) {
+        setEditConflict(true);
+        toast("Conflict detected: this note was modified elsewhere.", { type: "warning" });
+        return;
+      }
       if (!res.ok) {
         toast(data.error || "Failed to save note", { type: "error" });
         return;
       }
+      setEditConflict(false);
+      setRecoveredDraft(null);
+      try {
+        localStorage.removeItem(`dnd_note_draft_${currentPath}`);
+      } catch {
+        /* ignore */
+      }
+      invalidateWikiLinkSuggestions();
       setSaveSuccess(true);
       toast("Note saved", { type: "success" });
       setTimeout(() => setSaveSuccess(false), 2500);
@@ -484,6 +518,48 @@ export function NoteModal({
       if (onNoteUpdated) onNoteUpdated();
     } finally {
       setIsSaving(false);
+    }
+  }, [currentPath, noteData, editContent, toast, fetchNote, onNoteUpdated]);
+
+  // Ctrl+S / Cmd+S shortcut while editing markdown
+  useEffect(() => {
+    if (!isOpen || activeTab !== "edit" || !noteData?.canEdit) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        handleSaveEdit();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOpen, activeTab, noteData?.canEdit, handleSaveEdit]);
+
+  const handleEditContentChange = (nextVal: string) => {
+    setEditContent(nextVal);
+    if (!currentPath || !noteData) return;
+    try {
+      const serverText = noteData.raw || noteData.body;
+      if (nextVal && nextVal !== serverText) {
+        localStorage.setItem(`dnd_note_draft_${currentPath}`, nextVal);
+      } else {
+        localStorage.removeItem(`dnd_note_draft_${currentPath}`);
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handlePlayerNoteChange = (nextVal: string) => {
+    setPlayerNoteText(nextVal);
+    if (!currentPath) return;
+    try {
+      if (nextVal.trim()) {
+        localStorage.setItem(`dnd_player_note_draft_${currentPath}`, nextVal);
+      } else {
+        localStorage.removeItem(`dnd_player_note_draft_${currentPath}`);
+      }
+    } catch {
+      /* ignore */
     }
   };
 
@@ -507,6 +583,11 @@ export function NoteModal({
       }
       toast("Player note appended", { type: "success" });
       setPlayerNoteText("");
+      try {
+        localStorage.removeItem(`dnd_player_note_draft_${currentPath}`);
+      } catch {
+        /* ignore */
+      }
       await fetchNote(currentPath);
       setActiveTab("read");
       if (onNoteUpdated) onNoteUpdated();
@@ -613,7 +694,7 @@ export function NoteModal({
         className="relative w-full max-w-4xl h-full sm:h-auto sm:max-h-[92vh] flex flex-col bg-fantasy-850 border-t sm:border border-fantasy-700 rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden text-slate-200"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-fantasy-700/80 bg-fantasy-900/90">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-3.5 border-b border-fantasy-700/80 bg-fantasy-900/90">
           <div className="flex items-center gap-2.5 min-w-0">
             {/* History Back/Forward Controls */}
             <div className="flex items-center gap-0.5 bg-fantasy-800 p-0.5 rounded-lg border border-fantasy-700 flex-shrink-0">
@@ -1007,9 +1088,82 @@ export function NoteModal({
               {/* TAB 2: Edit Markdown */}
               {activeTab === "edit" && noteData.canEdit && (
                 <div className="space-y-4">
+                  {recoveredDraft && (
+                    <div className="p-3 rounded-xl bg-amber-950/50 border border-amber-500/60 text-amber-200 text-xs flex flex-wrap items-center justify-between gap-2">
+                      <span>Recovered an unsaved local draft from this device.</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditContent(recoveredDraft);
+                            setRecoveredDraft(null);
+                            toast("Draft restored.", { type: "info" });
+                          }}
+                          className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold"
+                        >
+                          Restore Draft
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRecoveredDraft(null);
+                            if (currentPath) {
+                              try {
+                                localStorage.removeItem(`dnd_note_draft_${currentPath}`);
+                              } catch {
+                                /* ignore */
+                              }
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded bg-fantasy-800 hover:bg-fantasy-700 text-slate-300"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {editConflict && (
+                    <div className="p-3.5 rounded-xl bg-rose-950/50 border border-rose-500/70 text-rose-200 text-xs space-y-2.5">
+                      <div className="flex items-center gap-2 font-semibold">
+                        <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                        <span>This note changed in Obsidian or on another device since you opened it.</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => currentPath && fetchNote(currentPath)}
+                          className="px-3 py-1 rounded-lg bg-fantasy-800 hover:bg-fantasy-700 text-slate-200 font-semibold flex items-center gap-1"
+                        >
+                          <RefreshCw className="w-3 h-3" /> Reload Latest
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (typeof navigator !== "undefined" && navigator.clipboard) {
+                              navigator.clipboard.writeText(editContent);
+                              toast("Your edits copied to clipboard.", { type: "success" });
+                            }
+                          }}
+                          className="px-3 py-1 rounded-lg bg-fantasy-800 hover:bg-fantasy-700 text-slate-200 font-semibold flex items-center gap-1"
+                        >
+                          <Copy className="w-3 h-3" /> Copy My Edits
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveEdit(true)}
+                          disabled={isSaving}
+                          className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold"
+                        >
+                          Force Overwrite
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
                     <span>
-                      Type <kbd className="px-1.5 py-0.5 rounded bg-fantasy-800 border border-fantasy-700 font-mono text-amber-300">[[</kbd> to link any note.
+                      Type <kbd className="px-1.5 py-0.5 rounded bg-fantasy-800 border border-fantasy-700 font-mono text-amber-300">[[</kbd> to link · <kbd className="px-1.5 py-0.5 rounded bg-fantasy-800 border border-fantasy-700 font-mono text-amber-300">Ctrl+S</kbd> to save
                     </span>
                     <div className="flex items-center gap-3">
                       {saveSuccess && (
@@ -1046,7 +1200,7 @@ export function NoteModal({
                     {editViewMode !== "preview" && (
                       <WikiLinkTextarea
                         value={editContent}
-                        onChange={setEditContent}
+                        onChange={handleEditContentChange}
                         rows={18}
                         className="w-full p-4 font-mono text-sm bg-fantasy-900 border border-fantasy-700 rounded-lg text-slate-200 focus:outline-none focus:border-amber-500 resize-y"
                         placeholder="Type Obsidian Markdown... Use [[ to link notes."
@@ -1067,8 +1221,27 @@ export function NoteModal({
                   <div className="flex items-center justify-end gap-3 pt-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        setEditContent(noteData.raw || noteData.body);
+                      onClick={async () => {
+                        const serverText = noteData.raw || noteData.body;
+                        if (editContent !== serverText) {
+                          const ok = await confirmDialog({
+                            title: "Discard Unsaved Edits?",
+                            message: "Revert your markdown changes back to the last saved version?",
+                            confirmLabel: "Discard",
+                            destructive: true,
+                          });
+                          if (!ok) return;
+                        }
+                        setEditContent(serverText);
+                        setEditConflict(false);
+                        setRecoveredDraft(null);
+                        if (currentPath) {
+                          try {
+                            localStorage.removeItem(`dnd_note_draft_${currentPath}`);
+                          } catch {
+                            /* ignore */
+                          }
+                        }
                         setActiveTab("read");
                       }}
                       className="px-4 py-2 text-xs font-medium text-slate-300 hover:text-white rounded-lg hover:bg-fantasy-800 transition"
@@ -1077,7 +1250,7 @@ export function NoteModal({
                     </button>
                     <button
                       type="button"
-                      onClick={handleSaveEdit}
+                      onClick={() => handleSaveEdit(false)}
                       disabled={isSaving}
                       className="px-5 py-2 text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-slate-950 rounded-lg flex items-center gap-1.5 disabled:opacity-50 transition shadow"
                     >
@@ -1096,11 +1269,17 @@ export function NoteModal({
                     <div className="mt-1 font-mono text-slate-300">
                       - **{currentUser?.name || "Player"} ({currentUser?.character || "PC"})** · {new Date().toISOString().slice(0, 10)}: ...
                     </div>
-                    It will never modify or overwrite DM descriptions. Type <kbd className="px-1 py-0.5 rounded bg-fantasy-800 border border-fantasy-700 font-mono text-amber-300">[[</kbd> to link notes.
+                    It will never modify or overwrite DM descriptions. Type <kbd className="px-1 py-0.5 rounded bg-fantasy-800 border border-fantasy-700 font-mono text-amber-300">[[</kbd> to link notes · <kbd className="px-1 py-0.5 rounded bg-fantasy-800 border border-fantasy-700 font-mono text-amber-300">Ctrl+Enter</kbd> to append.
                   </div>
                   <WikiLinkTextarea
                     value={playerNoteText}
-                    onChange={setPlayerNoteText}
+                    onChange={handlePlayerNoteChange}
+                    onKeyDown={(e) => {
+                      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                        e.preventDefault();
+                        handleSubmitPlayerNote();
+                      }
+                    }}
                     rows={6}
                     placeholder="Add observations, rumors heard, leads, or personal thoughts about this person, place, or lore..."
                     className="w-full p-4 text-sm bg-fantasy-900 border border-fantasy-700 rounded-lg text-slate-200 focus:outline-none focus:border-amber-500"

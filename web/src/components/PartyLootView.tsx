@@ -66,7 +66,7 @@ export function PartyLootView({
   onClaimItem,
   onToggleCharacterVisibility,
 }: PartyLootViewProps) {
-  const [activeTab, setActiveTab] = useState<"party" | "loot" | "myItems">("party");
+  const [activeTab, setActiveTab] = useState<"party" | "loot" | "myItems" | "claimed">("party");
   const [claimingPath, setClaimingPath] = useState<string | null>(null);
   const [lootSearchQuery, setLootSearchQuery] = useState<string>("");
 
@@ -80,6 +80,13 @@ export function PartyLootView({
     !lootSearchQuery.trim() ||
     item.title.toLowerCase().includes(lootSearchQuery.toLowerCase()) ||
     (item.summary || "").toLowerCase().includes(lootSearchQuery.toLowerCase())
+  );
+
+  const filteredClaimedItems = claimedItems.filter((item) =>
+    !lootSearchQuery.trim() ||
+    item.title.toLowerCase().includes(lootSearchQuery.toLowerCase()) ||
+    (item.summary || "").toLowerCase().includes(lootSearchQuery.toLowerCase()) ||
+    (item.owner || "").toLowerCase().includes(lootSearchQuery.toLowerCase())
   );
 
   const handleClaim = async (path: string, newOwner: string) => {
@@ -139,6 +146,19 @@ export function PartyLootView({
           >
             <Sparkles className="w-3.5 h-3.5" /> My Equipment ({myItems.length})
           </button>
+          {(claimedItems.length > 0 || isScribe) && (
+            <button
+              type="button"
+              onClick={() => setActiveTab("claimed")}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition flex items-center gap-1.5 ${
+                activeTab === "claimed"
+                  ? "bg-amber-600 text-slate-950 font-semibold"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <UserCheck className="w-3.5 h-3.5" /> Party Claimed ({claimedItems.length})
+            </button>
+          )}
         </div>
       </div>
 
@@ -411,6 +431,77 @@ export function PartyLootView({
                       <PackageX className="w-3.5 h-3.5" />
                       Return to Stash
                     </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {/* TAB 4: Claimed by Other Party Members */}
+      {activeTab === "claimed" && (
+        <div className="space-y-4">
+          <div className="p-3.5 rounded-lg bg-fantasy-900/60 border border-fantasy-700/60 text-xs text-slate-300">
+            🛡️ <strong>Party Claimed Gear:</strong> Items currently held by other party members.
+          </div>
+
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={lootSearchQuery}
+              onChange={(e) => setLootSearchQuery(e.target.value)}
+              placeholder="Filter party-claimed items by name or owner..."
+              className="w-full pl-9 pr-4 py-1.5 text-xs bg-fantasy-900 border border-fantasy-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500"
+            />
+          </div>
+
+          {filteredClaimedItems.length === 0 ? (
+            <div className="py-16 text-center text-slate-500 text-sm">
+              {lootSearchQuery ? "No claimed items match your search." : "No items are currently claimed by other party members."}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredClaimedItems.map((item) => (
+                <div
+                  key={item.path}
+                  onClick={() => onSelectNote(item.path)}
+                  className="p-4 rounded-xl bg-fantasy-850 hover:bg-fantasy-800 border border-fantasy-700/80 hover:border-amber-500/40 transition cursor-pointer flex flex-col justify-between shadow group"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <h4 className="font-serif font-semibold text-sm text-amber-200 group-hover:text-amber-100">
+                        {item.title}
+                      </h4>
+                      <span className="px-2 py-0.5 text-[10px] rounded bg-amber-950/60 text-amber-300 border border-amber-700/50">
+                        {item.owner || "Claimed"}
+                      </span>
+                    </div>
+
+                    {item.summary && (
+                      <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
+                        {item.summary}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="pt-3 mt-3 border-t border-fantasy-700/40 flex items-center justify-between">
+                    <span className="text-[11px] text-slate-500">Owner: {item.owner}</span>
+                    {isScribe && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleClaim(item.path, "party");
+                        }}
+                        disabled={claimingPath === item.path}
+                        className="px-2.5 py-1 text-xs font-medium rounded bg-fantasy-800 hover:bg-rose-950/50 hover:text-rose-300 border border-fantasy-700 text-slate-300 transition flex items-center gap-1"
+                        title="Return item to party stash"
+                      >
+                        <PackageX className="w-3.5 h-3.5" />
+                        Return to Stash
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}

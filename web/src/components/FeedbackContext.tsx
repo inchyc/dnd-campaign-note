@@ -27,7 +27,7 @@ export interface PromptOptions {
   placeholder?: string;
   confirmLabel?: string;
   cancelLabel?: string;
-  inputType?: "text" | "number";
+  inputType?: "text" | "number" | "password";
 }
 
 interface FeedbackContextValue {

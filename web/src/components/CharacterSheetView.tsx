@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Shield,
   Heart,
@@ -94,7 +94,11 @@ export function CharacterSheetView({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "dirty" | "saving" | "saved" | "error" | "conflict">("idle");
+  const [conflictSheet, setConflictSheet] = useState<CharacterSheetData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const lastSyncedAtRef = useRef<number>(0);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sub-Tab: "character" or companion ID
   const [activeTab, setActiveTab] = useState<string>("character");
@@ -150,6 +154,9 @@ export function CharacterSheetView({
       if (data.success && data.sheet) {
         setSheet(data.sheet);
         setCachedData(cacheKey, data.sheet);
+        lastSyncedAtRef.current = data.sheet.updatedAt || 0;
+        setSaveStatus("idle");
+        setConflictSheet(null);
         if (data.isNew) {
           setShowWizard(true);
         }
@@ -234,36 +241,100 @@ export function CharacterSheetView({
   }, [sheet?.spellcastingAbility, mods, pb]);
 
   // Save changes
-  const saveSheet = async (updatedSheet?: CharacterSheetData) => {
+  const saveSheet = useCallback(async (updatedSheet?: CharacterSheetData, force = false) => {
     const toSave = updatedSheet || sheet;
     if (!toSave) return;
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
     setSaving(true);
+    setSaveStatus("saving");
     setError(null);
     try {
       const res = await fetch("/api/character/sheet", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(toSave),
+        body: JSON.stringify({
+          ...toSave,
+          baseUpdatedAt: lastSyncedAtRef.current || undefined,
+          force,
+        }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409 && data.conflict) {
+        setSaveStatus("conflict");
+        setConflictSheet(data.serverSheet || null);
+        toast("Sheet changed on another device — resolve conflict above.", { type: "warning" });
+        return;
+      }
       if (data.success) {
         setSheet(data.sheet);
+        setCachedData(`char_sheet_${toSave.userId}`, data.sheet);
+        lastSyncedAtRef.current = data.sheet.updatedAt || Date.now();
+        setConflictSheet(null);
+        setSaveStatus("saved");
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 2000);
       } else {
+        setSaveStatus("error");
         setError(data.error || "Failed to save sheet");
       }
     } catch (e: any) {
+      setSaveStatus("error");
       setError(e.message || "Failed to save sheet");
     } finally {
       setSaving(false);
     }
-  };
+  }, [sheet, toast]);
+
+  const applyLocalEdit = useCallback(
+    (updated: CharacterSheetData) => {
+      setSheet(updated);
+      setCachedData(`char_sheet_${updated.userId}`, updated);
+      setSaveStatus("dirty");
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(() => {
+        saveSheet(updated);
+      }, 1200);
+    },
+    [saveSheet]
+  );
+
+  // Ctrl+S / Cmd+S shortcut & beforeunload unsaved guard
+  useEffect(() => {
+    if (!canEdit) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        saveSheet();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [canEdit, saveSheet]);
+
+  useEffect(() => {
+    if (saveStatus !== "dirty" && saveStatus !== "saving") return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "Character sheet changes are still saving.";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [saveStatus]);
+
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, []);
 
   const updateField = <K extends keyof CharacterSheetData>(key: K, val: CharacterSheetData[K]) => {
     if (!sheet || !canEdit) return;
     const updated = { ...sheet, [key]: val };
-    setSheet(updated);
+    applyLocalEdit(updated);
   };
 
   const updateStat = (stat: "str" | "dex" | "con" | "int" | "wis" | "cha", val: number) => {
@@ -275,7 +346,7 @@ export function CharacterSheetView({
         [stat]: Math.max(1, Math.min(30, val || 10)),
       },
     };
-    setSheet(updated);
+    applyLocalEdit(updated);
   };
 
   const toggleSaveProf = (stat: "str" | "dex" | "con" | "int" | "wis" | "cha") => {
@@ -287,7 +358,7 @@ export function CharacterSheetView({
         [stat]: !sheet.savingThrows[stat],
       },
     };
-    setSheet(updated);
+    applyLocalEdit(updated);
   };
 
   const cycleSkillProf = (skillId: string) => {
@@ -301,7 +372,7 @@ export function CharacterSheetView({
         [skillId]: next,
       },
     };
-    setSheet(updated);
+    applyLocalEdit(updated);
   };
 
   // HP Adjustments
@@ -309,7 +380,7 @@ export function CharacterSheetView({
     if (!sheet || !canEdit) return;
     const newHp = Math.max(0, Math.min(sheet.hpMax, sheet.hpCurrent + delta));
     const updated = { ...sheet, hpCurrent: newHp };
-    setSheet(updated);
+    applyLocalEdit(updated);
   };
 
   // Rest Handlers
@@ -477,7 +548,7 @@ export function CharacterSheetView({
       s.id === id ? { ...s, prepared: !s.prepared } : s
     );
     const updated = { ...sheet, spells };
-    setSheet(updated);
+    applyLocalEdit(updated);
   };
 
   // Quick Cast Spell & Slot expenditure
@@ -526,7 +597,7 @@ export function CharacterSheetView({
         [level]: { ...curr, used: newUsed },
       },
     };
-    setSheet(updated);
+    applyLocalEdit(updated);
   };
 
   // Dice Roller (integrated with Table Tools drawer & roll log)
@@ -720,38 +791,102 @@ export function CharacterSheetView({
             </button>
           )}
 
-          {/* Save Button */}
+          {/* Save Status & Save Button */}
           {canEdit && (
-            <button
-              type="button"
-              onClick={() => saveSheet()}
-              disabled={saving}
-              className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow transition ${
-                saveSuccess
-                  ? "bg-emerald-600 text-white"
-                  : "bg-amber-600 hover:bg-amber-500 text-stone-950"
-              }`}
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Saving...</span>
-                </>
-              ) : saveSuccess ? (
-                <>
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Saved!</span>
-                </>
-              ) : (
-                <>
-                  <Save className="w-3.5 h-3.5" />
-                  <span>Save</span>
-                </>
+            <div className="flex items-center gap-2">
+              {saveStatus === "dirty" && (
+                <span className="text-[11px] font-mono text-amber-300">Auto-saving…</span>
               )}
-            </button>
+              {saveStatus === "error" && (
+                <span className="text-[11px] font-mono text-rose-400">Save failed</span>
+              )}
+              <button
+                type="button"
+                onClick={() => saveSheet()}
+                disabled={saving}
+                className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow transition ${
+                  saveSuccess || saveStatus === "saved"
+                    ? "bg-emerald-600 text-white"
+                    : saveStatus === "dirty"
+                    ? "bg-amber-500 hover:bg-amber-400 text-stone-950 ring-2 ring-amber-400/50"
+                    : "bg-amber-600 hover:bg-amber-500 text-stone-950"
+                }`}
+                title="Save character sheet (Ctrl+S)"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : saveSuccess ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Saved!</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Save</span>
+                  </>
+                )}
+              </button>
+            </div>
           )}
         </div>
       </div>
+
+      {/* SHEET SAVE ERROR OR CONFLICT BANNER */}
+      {error && (
+        <div className="p-3.5 rounded-xl bg-rose-950/50 border border-rose-700/60 text-rose-200 text-xs flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+            <span>{error}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => saveSheet()}
+            className="px-3 py-1 rounded-lg bg-rose-700 hover:bg-rose-600 text-white font-semibold"
+          >
+            Retry Save
+          </button>
+        </div>
+      )}
+
+      {saveStatus === "conflict" && (
+        <div className="p-4 rounded-xl bg-amber-950/60 border border-amber-500/70 text-amber-200 text-xs flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <span>This character sheet was updated on another device while you were editing.</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (conflictSheet) {
+                  setSheet(conflictSheet);
+                  setCachedData(`char_sheet_${conflictSheet.userId}`, conflictSheet);
+                  lastSyncedAtRef.current = conflictSheet.updatedAt || Date.now();
+                  setConflictSheet(null);
+                  setSaveStatus("idle");
+                  toast("Loaded latest sheet from server.", { type: "info" });
+                } else {
+                  fetchSheet(selectedUserId);
+                }
+              }}
+              className="px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold"
+            >
+              Reload Server Version
+            </button>
+            <button
+              type="button"
+              onClick={() => saveSheet(sheet, true)}
+              className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold"
+            >
+              Keep Mine & Overwrite
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* COMPANION SUB-TABS BAR */}
       <div className="flex items-center gap-2 border-b border-stone-800 pb-2 text-xs font-serif overflow-x-auto">

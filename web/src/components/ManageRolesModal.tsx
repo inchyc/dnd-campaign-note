@@ -14,6 +14,7 @@ import {
   UserCheck,
   Plus,
   Trash2,
+  KeyRound,
 } from "lucide-react";
 import { JoinCampaignModal } from "./JoinCampaignModal";
 import { useFeedback } from "./FeedbackContext";
@@ -40,7 +41,7 @@ export function ManageRolesModal({
   currentUserId,
   onRolesUpdated,
 }: ManageRolesModalProps) {
-  const { confirm: confirmDialog } = useFeedback();
+  const { confirm: confirmDialog, prompt: promptDialog, toast } = useFeedback();
   const [users, setUsers] = useState<UserItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -238,6 +239,47 @@ export function ManageRolesModal({
                       )}
                     </button>
 
+                    {/* Reset PIN Button */}
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const newPin = await promptDialog({
+                          title: `Reset PIN for ${u.character}`,
+                          message: `Enter a new PIN (4+ characters) for ${u.name}:`,
+                          inputType: "password",
+                          confirmLabel: "Update PIN",
+                        });
+                        if (!newPin) return;
+                        if (newPin.trim().length < 4) {
+                          toast("PIN must be at least 4 characters.", { type: "warning" });
+                          return;
+                        }
+                        setUpdatingId(u.id);
+                        try {
+                          const res = await fetch("/api/scribe/pin", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ userId: u.id, pin: newPin.trim() }),
+                          });
+                          const data = await res.json();
+                          if (!res.ok || !data.success) {
+                            toast(data.error || "Failed to reset PIN", { type: "error" });
+                            return;
+                          }
+                          toast(`PIN updated for ${u.character}.`, { type: "success" });
+                        } catch (err: any) {
+                          toast(err?.message || "Network error updating PIN", { type: "error" });
+                        } finally {
+                          setUpdatingId(null);
+                        }
+                      }}
+                      disabled={isUpdating}
+                      title={`Reset ${u.character}'s PIN`}
+                      className="p-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-amber-300 hover:bg-fantasy-800 border border-transparent hover:border-amber-600/40 transition disabled:opacity-30"
+                    >
+                      <KeyRound className="w-3.5 h-3.5" />
+                    </button>
+
                     {/* Delete Player Button */}
                     <button
                       type="button"
@@ -314,6 +356,7 @@ export function ManageRolesModal({
           campaignId={campaignId}
           campaignName={`Campaign ${campaignId}`}
           autoLogin={false}
+          allowScribeRole={true}
           onJoined={() => {
             fetchUsers();
           }}

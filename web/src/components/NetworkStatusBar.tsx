@@ -1,11 +1,21 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { WifiOff, RefreshCw, CheckCircle2 } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { WifiOff, CheckCircle2 } from "lucide-react";
 
-export function NetworkStatusBar() {
+interface NetworkStatusBarProps {
+  onReconnect?: () => void;
+}
+
+export function NetworkStatusBar({ onReconnect }: NetworkStatusBarProps) {
   const [isOnline, setIsOnline] = useState(true);
   const [showReconnected, setShowReconnected] = useState(false);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onReconnectRef = useRef(onReconnect);
+
+  useEffect(() => {
+    onReconnectRef.current = onReconnect;
+  }, [onReconnect]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -13,13 +23,15 @@ export function NetworkStatusBar() {
     const handleOnline = () => {
       setIsOnline(true);
       setShowReconnected(true);
-      const timer = setTimeout(() => setShowReconnected(false), 3500);
-      return () => clearTimeout(timer);
+      onReconnectRef.current?.();
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = setTimeout(() => setShowReconnected(false), 3500);
     };
 
     const handleOffline = () => {
       setIsOnline(false);
       setShowReconnected(false);
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
     };
 
     setIsOnline(navigator.onLine);
@@ -29,6 +41,7 @@ export function NetworkStatusBar() {
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
     };
   }, []);
 

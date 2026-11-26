@@ -1,4 +1,5 @@
 import { HttpError, handle, loadUsers, requireCtx } from "@/lib/auth";
+import { withLock } from "@/lib/storage";
 import { setFrontmatterKey } from "@/lib/vault";
 
 export const dynamic = "force-dynamic";
@@ -369,7 +370,8 @@ export const GET = handle(async (req: Request) => {
  */
 export const POST = handle(async (req: Request) => {
   const ctx = await requireCtx();
-  const body = (await req.json()) as CharacterSheetData;
+  const rawBody = (await req.json()) as CharacterSheetData & { baseUpdatedAt?: number; force?: boolean };
+  const { baseUpdatedAt, force, ...body } = rawBody;
 
   if (!body || !body.userId) {
     throw new HttpError(400, "Missing sheet data or userId");
@@ -381,21 +383,38 @@ export const POST = handle(async (req: Request) => {
   }
 
   const sheetPath = getSheetPath(body.userId);
-  body.updatedAt = Date.now();
+  await withLock(`sheet:${ctx.campaign.id}:${body.userId}`, async () => {
+    if (!force && typeof baseUpdatedAt === "number" && (await ctx.storage.exists(sheetPath))) {
+      try {
+        const existing = JSON.parse(await ctx.storage.read(sheetPath)) as CharacterSheetData;
+        if (existing?.updatedAt && existing.updatedAt > baseUpdatedAt + 1000) {
+          throw new HttpError(409, "Character sheet was updated on another device.", {
+            conflict: true,
+            currentUpdatedAt: existing.updatedAt,
+            serverSheet: existing,
+          });
+        }
+      } catch (err) {
+        if (err instanceof HttpError) throw err;
+      }
+    }
 
-  // Save full JSON sheet
-  await ctx.storage.write(sheetPath, JSON.stringify(body, null, 2));
+    body.updatedAt = Date.now();
+    await ctx.storage.write(sheetPath, JSON.stringify(body, null, 2));
+  });
 
   // Sync vital stats to the character markdown note frontmatter if it exists
   try {
     const pcNotePath = `Notes/PC Notes/${body.character}.md`;
     if (await ctx.storage.exists(pcNotePath)) {
-      let rawNote = await ctx.storage.read(pcNotePath);
-      if (body.class) rawNote = setFrontmatterKey(rawNote, "class", body.class);
-      if (body.level) rawNote = setFrontmatterKey(rawNote, "level", String(body.level));
-      if (body.hpMax) rawNote = setFrontmatterKey(rawNote, "max_hp", String(body.hpMax));
-      if (body.ac) rawNote = setFrontmatterKey(rawNote, "ac", String(body.ac));
-      await ctx.storage.write(pcNotePath, rawNote);
+      await withLock(pcNotePath, async () => {
+        let rawNote = await ctx.storage.read(pcNotePath);
+        if (body.class) rawNote = setFrontmatterKey(rawNote, "class", body.class);
+        if (body.level) rawNote = setFrontmatterKey(rawNote, "level", String(body.level));
+        if (body.hpMax) rawNote = setFrontmatterKey(rawNote, "max_hp", String(body.hpMax));
+        if (body.ac) rawNote = setFrontmatterKey(rawNote, "ac", String(body.ac));
+        await ctx.storage.write(pcNotePath, rawNote);
+      });
     }
   } catch (err) {
     console.warn("Could not sync sheet frontmatter to markdown note:", err);

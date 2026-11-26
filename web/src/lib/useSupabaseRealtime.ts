@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { getSupabaseBrowser } from "./supabaseClient";
+import { getSupabaseBrowser } from "./supabaseBrowser";
 
 export interface RealtimeNoteEvent {
   eventType: "INSERT" | "UPDATE" | "DELETE";

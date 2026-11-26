@@ -17,6 +17,7 @@ interface JoinCampaignModalProps {
   campaignName: string;
   onJoined: (user: HubUserPublic) => void;
   autoLogin?: boolean;
+  allowScribeRole?: boolean;
 }
 
 const COMMON_CLASSES = [
@@ -43,6 +44,7 @@ export function JoinCampaignModal({
   campaignName,
   onJoined,
   autoLogin = true,
+  allowScribeRole = false,
 }: JoinCampaignModalProps) {
   const [name, setName] = useState("");
   const [character, setCharacter] = useState("");
@@ -67,7 +69,7 @@ export function JoinCampaignModal({
     }
 
     setLoading(true);
-    setErrorLog: setError(null);
+    setError(null);
 
     try {
       const res = await fetch(`/api/campaigns/${campaignId}/users/join`, {
@@ -77,7 +79,7 @@ export function JoinCampaignModal({
           name: name.trim(),
           character: character.trim(),
           pin: pin.trim(),
-          role,
+          role: allowScribeRole ? role : "player",
           class: characterClass,
           level: parseInt(level, 10) || 1,
           autoLogin,
@@ -214,40 +216,42 @@ export function JoinCampaignModal({
             </p>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">
-              Party Role
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setRole("player")}
-                className={`p-2.5 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
-                  role === "player"
-                    ? "bg-emerald-600/30 border-emerald-500 text-emerald-200"
-                    : "bg-fantasy-800 border-fantasy-700 text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <User className="w-3.5 h-3.5" />
-                Player
-              </button>
-              <button
-                type="button"
-                onClick={() => setRole("scribe")}
-                className={`p-2.5 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
-                  role === "scribe"
-                    ? "bg-amber-600/30 border-amber-500 text-amber-200"
-                    : "bg-fantasy-800 border-fantasy-700 text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <Shield className="w-3.5 h-3.5" />
-                Scribe (Co-DM)
-              </button>
+          {allowScribeRole && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Party Role
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRole("player")}
+                  className={`p-2.5 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
+                    role === "player"
+                      ? "bg-emerald-600/30 border-emerald-500 text-emerald-200"
+                      : "bg-fantasy-800 border-fantasy-700 text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <User className="w-3.5 h-3.5" />
+                  Player
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRole("scribe")}
+                  className={`p-2.5 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
+                    role === "scribe"
+                      ? "bg-amber-600/30 border-amber-500 text-amber-200"
+                      : "bg-fantasy-800 border-fantasy-700 text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  Scribe (Co-DM)
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Scribes can edit DM secrets, assign party roles, and run audio transcription. Multiple scribes can exist at once!
+              </p>
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              Scribes can edit DM secrets, assign party roles, and run audio transcription. Multiple scribes can exist at once!
-            </p>
-          </div>
+          )}
 
           {/* Footer Submit */}
           <div className="pt-2 flex items-center justify-end gap-2 border-t border-fantasy-700/60">

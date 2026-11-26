@@ -1,12 +1,13 @@
 import { HttpError, handle, hashPin } from "@/lib/auth";
-import { addCampaign, getStorage, listCampaigns } from "@/lib/campaigns";
+import { addCampaignAsync, getStorage, listCampaignsAsync } from "@/lib/campaigns";
 
 export const dynamic = "force-dynamic";
 
 export const GET = handle(async () => {
+  const campaigns = await listCampaignsAsync();
   return Response.json({
     success: true,
-    campaigns: listCampaigns().map((c) => ({
+    campaigns: campaigns.map((c) => ({
       id: c.id,
       name: c.name,
       tagline: c.tagline,
@@ -31,7 +32,7 @@ export const POST = handle(async (req: Request) => {
   const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   if (!id) throw new HttpError(400, "Invalid campaign name");
 
-  const existing = listCampaigns();
+  const existing = await listCampaignsAsync();
   if (existing.some((c) => c.id === id)) {
     throw new HttpError(409, `A campaign with ID '${id}' already exists`);
   }
@@ -45,7 +46,7 @@ export const POST = handle(async (req: Request) => {
     chapter: "Chapter 1: The Journey Begins",
   };
 
-  addCampaign(newCampaign);
+  await addCampaignAsync(newCampaign);
 
   // Initialize storage with users.json (creator as Scribe) and starter notes
   const storage = getStorage(newCampaign);
@@ -76,7 +77,7 @@ status: active
 # Session 0: The Journey Begins
 Welcome to ${newCampaign.name}! The world is waiting for your heroes.
 `;
-  await storage.write("Notes/Sessions/Session 0.md", sessionZero);
+  await storage.write("Notes/Session Notes/Session 0.md", sessionZero);
 
   const pcNote = `---
 title: ${charName}
@@ -97,7 +98,7 @@ priority: normal
 # First Steps
 The adventure begins. Gather your party and investigate your first mystery.
 `;
-  await storage.write("Notes/Quests/First Steps.md", starterQuest);
+  await storage.write("Notes/Investigations/First Steps.md", starterQuest);
 
   return Response.json({ success: true, campaign: newCampaign });
 });

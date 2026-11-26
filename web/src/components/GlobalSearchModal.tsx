@@ -24,35 +24,103 @@ export interface CommandAction {
   onExecute: () => void;
 }
 
+interface LocalNoteItem {
+  path: string;
+  title: string;
+  category: string;
+  sub?: string;
+  summary?: string;
+}
+
 interface GlobalSearchModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectNote: (path: string) => void;
   actions?: CommandAction[];
+  localNotes?: LocalNoteItem[];
 }
 
-const SUGGESTIONS = ["Vaust", "Church", "Lucas", "Marta Kell", "Demire", "The Faces", "Ruik"];
+const DEFAULT_SUGGESTIONS = ["Vaust", "Church", "Lucas", "Marta Kell", "Demire", "The Faces", "Ruik"];
 
 export function GlobalSearchModal({
   isOpen,
   onClose,
   onSelectNote,
   actions = [],
+  localNotes = [],
 }: GlobalSearchModalProps) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [serverResults, setServerResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       setQuery("");
-      setResults([]);
+      setServerResults([]);
       setSelectedIndex(0);
       setTimeout(() => inputRef.current?.focus(), 40);
+    } else {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      abortRef.current?.abort();
     }
   }, [isOpen]);
+
+  const suggestions = useMemo(() => {
+    if (localNotes.length > 0) {
+      const unique: string[] = [];
+      for (const n of localNotes) {
+        if (n.title && !unique.includes(n.title)) unique.push(n.title);
+        if (unique.length >= 7) break;
+      }
+      if (unique.length > 0) return unique;
+    }
+    return DEFAULT_SUGGESTIONS;
+  }, [localNotes]);
+
+  const localResults = useMemo<SearchResult[]>(() => {
+    const q = query.trim().toLowerCase();
+    if (!q || q.startsWith(">") || q.length < 2 || localNotes.length === 0) return [];
+    const out: SearchResult[] = [];
+    for (const n of localNotes) {
+      const title = n.title.toLowerCase();
+      const summary = (n.summary || "").toLowerCase();
+      let score = 0;
+      if (title === q) score = 100;
+      else if (title.includes(q)) score = 60;
+      else if (summary.includes(q)) score = 15;
+      if (!score) continue;
+      out.push({
+        meta: {
+          path: n.path,
+          title: n.title,
+          category: n.category,
+          sub: n.sub,
+          summary: n.summary,
+        },
+        snippet: n.summary || "",
+        score,
+      });
+    }
+    return out.sort((a, b) => b.score - a.score).slice(0, 15);
+  }, [localNotes, query]);
+
+  const results = useMemo(() => {
+    const byPath = new Map<string, SearchResult>();
+    for (const r of localResults) byPath.set(r.meta.path, r);
+    for (const r of serverResults) {
+      const existing = byPath.get(r.meta.path);
+      if (!existing || r.score >= existing.score || r.snippet) {
+        byPath.set(r.meta.path, r);
+      }
+    }
+    return Array.from(byPath.values())
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 30);
+  }, [localResults, serverResults]);
 
   const filteredActions = useMemo(() => {
     const clean = query.trim().replace(/^>/, "").trim().toLowerCase();
@@ -108,37 +176,44 @@ export function GlobalSearchModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, totalItems, selectedIndex, filteredActions, results, onClose, onSelectNote]);
 
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const handleQueryChange = (val: string) => {
     setQuery(val);
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    abortRef.current?.abort();
 
     const trimmed = val.trim();
     if (trimmed.startsWith(">") || trimmed.length < 2) {
-      setResults([]);
+      setServerResults([]);
       setLoading(false);
       return;
     }
 
     setLoading(true);
     searchTimeoutRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
       try {
         const res = await fetch("/api/notes", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ q: trimmed }),
+          signal: controller.signal,
         });
         const data = await res.json();
-        if (data.success) {
-          setResults(data.results || []);
+        if (data.success && !controller.signal.aborted) {
+          setServerResults(data.results || []);
           setSelectedIndex(0);
         }
-      } catch (e) {
-        console.error("Search error", e);
+      } catch (e: any) {
+        if (e?.name !== "AbortError") {
+          console.error("Search error", e);
+        }
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
-    }, 180);
+    }, 150);
   };
 
   if (!isOpen) return null;
@@ -181,7 +256,7 @@ export function GlobalSearchModal({
               <Sparkles className="w-3 h-3 text-amber-400" /> Suggested Searches
             </span>
             <div className="flex flex-wrap gap-1.5">
-              {SUGGESTIONS.map((term) => (
+              {suggestions.map((term) => (
                 <button
                   key={term}
                   type="button"

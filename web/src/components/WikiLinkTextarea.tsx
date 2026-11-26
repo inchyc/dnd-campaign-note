@@ -11,6 +11,11 @@ interface NoteSuggestion {
 let cachedSuggestions: NoteSuggestion[] | null = null;
 let fetchPromise: Promise<NoteSuggestion[]> | null = null;
 
+/** Clears the cached [[wikilink]] suggestion list so newly created or renamed notes appear immediately. */
+export function invalidateWikiLinkSuggestions() {
+  cachedSuggestions = null;
+}
+
 async function loadNoteSuggestions(): Promise<NoteSuggestion[]> {
   if (cachedSuggestions) return cachedSuggestions;
   if (fetchPromise) return fetchPromise;

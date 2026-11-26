@@ -1,4 +1,4 @@
-import { HttpError, handle, hashPin, loadUsers, publicUser, requireCtx, saveUsers } from "@/lib/auth";
+import { HttpError, handle, hashPin, loadUsers, mutateUsers, publicUser, requireCtx } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -13,10 +13,11 @@ export const POST = handle(async (req: Request) => {
   const { userId, pin } = await req.json();
   const value = String(pin || "");
   if (value.length < 4 || value.length > 64) throw new HttpError(400, "Use at least 4 characters");
-  const users = await loadUsers(ctx.storage);
-  const u = users.find((x) => x.id === userId);
-  if (!u) throw new HttpError(404, "Unknown user");
-  u.hash = hashPin(value);
-  await saveUsers(ctx.storage, users);
+  await mutateUsers(ctx.storage, ctx.campaign.id, (users) => {
+    const u = users.find((x) => x.id === userId);
+    if (!u) throw new HttpError(404, "Unknown user");
+    u.hash = hashPin(value);
+    return users;
+  });
   return Response.json({ success: true });
 });

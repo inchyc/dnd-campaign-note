@@ -1,13 +1,13 @@
 import path from "path";
-import { HttpError, handle, loadUsers, publicUser, requireCtx, saveUsers, clearSessionCookie } from "@/lib/auth";
-import { getCampaign, getStorage } from "@/lib/campaigns";
+import { HttpError, handle, loadUsers, mutateUsers, publicUser, requireCtx, clearSessionCookie, HubUser } from "@/lib/auth";
+import { getCampaignAsync, getStorage } from "@/lib/campaigns";
 import { invalidateIndex } from "@/lib/vault";
 
 export const dynamic = "force-dynamic";
 
 export const GET = handle(async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
-  const campaign = getCampaign(id);
+  const campaign = await getCampaignAsync(id);
   if (!campaign) throw new HttpError(404, "Campaign not found");
   const users = await loadUsers(getStorage(campaign));
   return Response.json({
@@ -21,7 +21,7 @@ export const GET = handle(async (_req: Request, { params }: { params: Promise<{ 
 export const DELETE = handle(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const ctx = await requireCtx();
   const { id } = await params;
-  const campaign = getCampaign(id);
+  const campaign = await getCampaignAsync(id);
   if (!campaign) throw new HttpError(404, "Campaign not found");
 
   const body = await req.json().catch(() => ({}));
@@ -35,9 +35,17 @@ export const DELETE = handle(async (req: Request, { params }: { params: Promise<
   }
 
   const storage = getStorage(campaign);
-  const users = await loadUsers(storage);
-  const targetUser = users.find((u) => u.id === targetUserId);
-  if (!targetUser) throw new HttpError(404, "User not found in campaign");
+  let targetUser!: HubUser;
+
+  const remainingUsers = await mutateUsers(storage, campaign.id, (users) => {
+    const found = users.find((u) => u.id === targetUserId);
+    if (!found) throw new HttpError(404, "User not found in campaign");
+    if (found.role === "scribe" && users.filter((u) => u.role === "scribe").length <= 1) {
+      throw new HttpError(400, "Cannot remove the last remaining Scribe.");
+    }
+    targetUser = found;
+    return users.filter((u) => u.id !== targetUserId);
+  });
 
   // 1. Archive Obsidian character note(s) to Notes/PC Notes/Archive/
   const characterNotes = targetUser.characterNotes || [`Notes/PC Notes/${targetUser.character}.md`];
@@ -66,9 +74,6 @@ export const DELETE = handle(async (req: Request, { params }: { params: Promise<
     console.warn(`Could not delete character sheet ${sheetPath}:`, err);
   }
 
-  // 3. Remove user from roster and save
-  const remainingUsers = users.filter((u) => u.id !== targetUserId);
-  await saveUsers(storage, remainingUsers);
   invalidateIndex(campaign.id);
 
   // 4. If deleting self, clear session

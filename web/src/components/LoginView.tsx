@@ -79,12 +79,11 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
       if (data.users && Array.isArray(data.users) && data.users.length > 0) {
         setUsers(data.users);
       } else {
-        // Keep fallback users so login is never blocked
-        setUsers(FALLBACK_USERS);
+        setUsers(campId === "starving-vilgeismar" ? FALLBACK_USERS : []);
       }
     } catch (err) {
       console.warn("Could not fetch remote users, using cached fallback roster:", err);
-      setUsers(FALLBACK_USERS);
+      setUsers(campId === "starving-vilgeismar" ? FALLBACK_USERS : []);
     } finally {
       setUsersLoading(false);
     }
@@ -342,8 +341,8 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
 
             <div className="space-y-2">
               <label className="block text-xs font-semibold text-slate-300 flex items-center justify-between">
-                <span>Enter 4-Digit PIN</span>
-                <span className="text-[11px] text-slate-500">(Default PIN: 1234)</span>
+                <span>Enter Your PIN</span>
+                <span className="text-[11px] text-slate-500">Ask your Scribe if forgotten</span>
               </label>
               <div className="relative">
                 <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
@@ -414,7 +413,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
             href="https://github.com/inchyc/dnd-campaign-note/raw/main/release/D&D-Campaign-Notes.apk"
             className="hover:text-amber-400 transition flex items-center gap-1 font-medium"
           >
-            <span>📱 Download Android App (v1.2.8)</span>
+            <span>📱 Download Android App (v1.3.0)</span>
           </a>
           <span>•</span>
           <a

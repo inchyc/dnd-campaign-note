@@ -12,6 +12,9 @@ import {
   X,
   Sparkles,
   Heart,
+  Users,
+  EyeOff,
+  RefreshCw,
 } from "lucide-react";
 import { useTableTools, Combatant } from "./TableToolsContext";
 
@@ -32,6 +35,8 @@ export function DiceInitiativeDrawer({
     setRollMode,
     modifier,
     setModifier,
+    isPrivateRoll,
+    setIsPrivateRoll,
     rollLog,
     rollDice,
     clearRollLog,
@@ -42,6 +47,8 @@ export function DiceInitiativeDrawer({
     round,
     setRound,
     seedPartyInitiative,
+    tableSyncedAt,
+    refreshTableState,
   } = useTableTools();
 
   const [activeTab, setActiveTab] = useState<"dice" | "initiative">(drawerTab);
@@ -54,6 +61,15 @@ export function DiceInitiativeDrawer({
   useEffect(() => {
     setActiveTab(drawerTab);
   }, [drawerTab]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -133,18 +149,33 @@ export function DiceInitiativeDrawer({
         <div className="p-4 border-b border-fantasy-700 flex items-center justify-between bg-fantasy-900">
           <div className="flex items-center gap-2">
             <Dices className="w-5 h-5 text-amber-400" />
-            <h3 className="font-serif font-bold text-base text-amber-200">
-              Table Tools
-            </h3>
+            <div>
+              <h3 className="font-serif font-bold text-base text-amber-200 leading-tight">
+                Table Tools
+              </h3>
+              <p className="text-[10px] text-emerald-400/90 font-mono">
+                {tableSyncedAt ? "Live Table Sync Active" : "Syncing with table..."}
+              </p>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded text-slate-400 hover:text-white hover:bg-fantasy-800 transition"
-            title="Close (Esc or click outside)"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={refreshTableState}
+              className="p-1.5 rounded text-slate-400 hover:text-amber-300 hover:bg-fantasy-800 transition"
+              title="Refresh shared table state"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1 rounded text-slate-400 hover:text-white hover:bg-fantasy-800 transition"
+              title="Close (Esc or click outside)"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Navigation tabs */}
@@ -222,6 +253,31 @@ export function DiceInitiativeDrawer({
                     </button>
                   </div>
                 </div>
+
+                {/* Shared Table vs Private Roll Toggle */}
+                <div className="flex items-center justify-between pt-1.5 border-t border-fantasy-800">
+                  <span className="text-slate-400">Visibility:</span>
+                  <div className="inline-flex rounded-lg bg-fantasy-800 border border-fantasy-700 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setIsPrivateRoll(false)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold flex items-center gap-1 transition ${
+                        !isPrivateRoll ? "bg-emerald-600 text-slate-950" : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      <Users className="w-3 h-3" /> Table
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsPrivateRoll(true)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold flex items-center gap-1 transition ${
+                        isPrivateRoll ? "bg-rose-600 text-white" : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      <EyeOff className="w-3 h-3" /> Private
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* Die Grid */}
@@ -291,9 +347,23 @@ export function DiceInitiativeDrawer({
                         }`}
                       >
                         <div className="min-w-0 pr-2">
-                          {log.label && (
-                            <div className="text-[11px] font-sans font-semibold text-slate-200 truncate">
-                              {log.label}
+                          {(log.character || log.label) && (
+                            <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                              {log.character && (
+                                <span className="text-[10px] font-sans font-bold px-1.5 py-0.2 rounded bg-fantasy-800 text-amber-300 border border-fantasy-700">
+                                  {log.character}
+                                </span>
+                              )}
+                              {log.private && (
+                                <span className="text-[9px] font-sans font-bold px-1 py-0.2 rounded bg-rose-950/70 text-rose-300 border border-rose-700/60">
+                                  PRIVATE
+                                </span>
+                              )}
+                              {log.label && (
+                                <span className="text-[11px] font-sans font-semibold text-slate-200 truncate">
+                                  {log.label}
+                                </span>
+                              )}
                             </div>
                           )}
                           <div className="flex items-center gap-1.5 flex-wrap">

@@ -1,5 +1,15 @@
-import { HttpError, handle, hashPin, loadUsers, publicUser, saveUsers, setSessionCookie, HubUser, Role } from "@/lib/auth";
-import { getCampaign, getStorage } from "@/lib/campaigns";
+import {
+  HttpError,
+  handle,
+  hashPin,
+  mutateUsers,
+  publicUser,
+  setSessionCookie,
+  tryGetCtx,
+  HubUser,
+  Role,
+} from "@/lib/auth";
+import { getCampaignAsync, getStorage } from "@/lib/campaigns";
 
 export const dynamic = "force-dynamic";
 
@@ -13,14 +23,19 @@ function slugify(text: string): string {
 
 export const POST = handle(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
-  const campaign = getCampaign(id);
+  const campaign = await getCampaignAsync(id);
   if (!campaign) throw new HttpError(404, `Campaign '${id}' not found`);
 
   const body = await req.json();
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const character = typeof body.character === "string" ? body.character.trim() : "";
   const pin = typeof body.pin === "string" ? body.pin.trim() : "";
-  const role: Role = body.role === "scribe" ? "scribe" : "player";
+
+  // Only an authenticated Scribe of this campaign may register another Scribe directly.
+  const caller = await tryGetCtx();
+  const canAssignScribe = Boolean(caller?.isScribe && caller.campaign.id === campaign.id);
+  const role: Role = canAssignScribe && body.role === "scribe" ? "scribe" : "player";
+
   const characterClass = typeof body.class === "string" ? body.class.trim() : "Adventurer";
   const level = typeof body.level === "number" ? body.level : parseInt(body.level || "1", 10) || 1;
   const autoLogin = Boolean(body.autoLogin ?? true);
@@ -30,34 +45,31 @@ export const POST = handle(async (req: Request, { params }: { params: Promise<{ 
   if (!pin || pin.length < 3) throw new HttpError(400, "PIN must be at least 3 digits/characters.");
 
   const storage = getStorage(campaign);
-  const users = await loadUsers(storage);
-
-  // Generate unique userId based on name or character
-  let baseId = slugify(character) || slugify(name);
-  if (!baseId) baseId = `player-${Date.now()}`;
-  let userId = baseId;
-  let counter = 2;
-  while (users.some((u) => u.id === userId)) {
-    userId = `${baseId}-${counter++}`;
-  }
-
-  const hash = hashPin(pin);
   const characterPath = `Notes/PC Notes/${character}.md`;
+  const hash = hashPin(pin);
+  let newUser!: HubUser;
 
-  const newUser: HubUser = {
-    id: userId,
-    name,
-    character,
-    role,
-    class: characterClass,
-    level,
-    hash,
-    characterNotes: [characterPath],
-  };
+  const updatedUsers = await mutateUsers(storage, campaign.id, (users) => {
+    let baseId = slugify(character) || slugify(name);
+    if (!baseId) baseId = `player-${Date.now()}`;
+    let userId = baseId;
+    let counter = 2;
+    while (users.some((u) => u.id === userId)) {
+      userId = `${baseId}-${counter++}`;
+    }
 
-  // Add to roster and save
-  users.push(newUser);
-  await saveUsers(storage, users);
+    newUser = {
+      id: userId,
+      name,
+      character,
+      role,
+      class: characterClass,
+      level,
+      hash,
+      characterNotes: [characterPath],
+    };
+    return [...users, newUser];
+  });
 
   // Create character dossier note if not already existing
   try {
@@ -110,7 +122,7 @@ export const POST = handle(async (req: Request, { params }: { params: Promise<{ 
   return Response.json({
     success: true,
     user: publicUser(newUser),
-    users: users.map(publicUser),
+    users: updatedUsers.map(publicUser),
     campaign: { id: campaign.id, name: campaign.name },
   });
 });

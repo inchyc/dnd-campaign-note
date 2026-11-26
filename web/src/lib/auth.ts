@@ -3,8 +3,8 @@ import fs from "fs";
 import path from "path";
 import { cookies } from "next/headers";
 import { ROOT, getEnv } from "./config";
-import { Campaign, getCampaign, getStorage } from "./campaigns";
-import type { Storage } from "./storage";
+import { Campaign, getCampaignAsync, getStorage } from "./campaigns";
+import { withLock, type Storage } from "./storage";
 
 export type Role = "scribe" | "player";
 
@@ -109,6 +109,21 @@ export async function saveUsers(storage: Storage, users: HubUser[]) {
   usersCache.set(storage, { at: Date.now(), users });
 }
 
+/** Reads, mutates, and persists the campaign user roster under a per-campaign lock. */
+export async function mutateUsers(
+  storage: Storage,
+  campaignId: string,
+  fn: (users: HubUser[]) => HubUser[] | Promise<HubUser[]>
+): Promise<HubUser[]> {
+  return withLock(`users:${campaignId}`, async () => {
+    usersCache.delete(storage);
+    const current = await loadUsers(storage);
+    const next = await fn([...current]);
+    await saveUsers(storage, next);
+    return next;
+  });
+}
+
 export function publicUser(u: HubUser) {
   return { id: u.id, name: u.name, character: u.character, role: u.role, class: u.class, level: u.level };
 }
@@ -178,7 +193,7 @@ export async function requireCtx(opts?: { scribe?: boolean }): Promise<Ctx> {
   const jar = await cookies();
   const session = readToken(jar.get(COOKIE)?.value);
   if (!session) throw new HttpError(401, "Not signed in");
-  const campaign = getCampaign(session.campaign);
+  const campaign = await getCampaignAsync(session.campaign);
   if (!campaign) throw new HttpError(401, "Unknown campaign");
   const storage = getStorage(campaign);
   const users = await loadUsers(storage);
@@ -188,6 +203,15 @@ export async function requireCtx(opts?: { scribe?: boolean }): Promise<Ctx> {
   if (opts?.scribe && !isScribe) throw new HttpError(403, "Scribe only");
   const viewAsPlayer = jar.get("hub_view_as_player")?.value === "1";
   return { campaign, storage, user, isScribe, viewAsPlayer };
+}
+
+/** Optional auth context helper for public/semi-public endpoints. */
+export async function tryGetCtx(): Promise<Ctx | null> {
+  try {
+    return await requireCtx();
+  } catch {
+    return null;
+  }
 }
 
 /** Wraps a route handler so thrown HttpErrors become JSON responses. */

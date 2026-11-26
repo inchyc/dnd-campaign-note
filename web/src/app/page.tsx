@@ -54,9 +54,11 @@ import { FeedbackProvider, useFeedback } from "@/components/FeedbackContext";
 import { TableToolsProvider, useTableTools } from "@/components/TableToolsContext";
 import { AppSidebar, HubTabId } from "@/components/AppSidebar";
 import { MobileNavDrawer } from "@/components/MobileNavDrawer";
+import { invalidateWikiLinkSuggestions } from "@/components/WikiLinkTextarea";
 import { setCachedData, getCachedData } from "@/lib/cache";
 import { getStatusBadge } from "@/lib/statusConfig";
 import { applyJournalToNotes } from "@/lib/mutationJournal";
+import { useSupabaseRealtime, RealtimeNoteEvent } from "@/lib/useSupabaseRealtime";
 
 interface CurrentUser {
   id: string;
@@ -109,7 +111,7 @@ export default function CampaignHub() {
 
 function CampaignHubInner() {
   const { toast } = useFeedback();
-  const { isDrawerOpen, openDrawer, closeDrawer, rollDice } = useTableTools();
+  const { isDrawerOpen, openDrawer, closeDrawer, rollDice, configureTableSession, refreshTableState } = useTableTools();
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [currentCampaign, setCurrentCampaign] = useState<{ id: string; name: string } | null>(null);
   const [isCampaignMenuOpen, setIsCampaignMenuOpen] = useState(false);
@@ -365,6 +367,69 @@ function CampaignHubInner() {
     }
   }, [currentUser, activeTab, fetchHome, fetchCategory, fetchParty]);
 
+  // Keep shared TableToolsProvider synchronized with active campaign, user, and party roster
+  useEffect(() => {
+    configureTableSession({
+      campaignId: currentCampaign?.id,
+      currentUser,
+      partyMembers: homeData?.roster || [],
+    });
+  }, [configureTableSession, currentCampaign?.id, currentUser, homeData?.roster]);
+
+  // Live Supabase Realtime collaboration across notes, sessions, quests, loot, and table tools
+  const realtimeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRealtimePathsRef = useRef<Set<string>>(new Set());
+
+  const handleRealtimeChange = useCallback(
+    (event: RealtimeNoteEvent) => {
+      if (!currentUser) return;
+      const changedPath = String(event.new?.path || event.old?.path || "");
+      if (changedPath) pendingRealtimePathsRef.current.add(changedPath);
+
+      if (realtimeTimerRef.current) clearTimeout(realtimeTimerRef.current);
+      realtimeTimerRef.current = setTimeout(() => {
+        const paths = Array.from(pendingRealtimePathsRef.current);
+        pendingRealtimePathsRef.current.clear();
+
+        if (paths.some((p) => p === ".hub/table-state.json")) {
+          refreshTableState();
+        }
+        if (paths.some((p) => p.startsWith("Notes/Session Notes/"))) {
+          try {
+            localStorage.removeItem("dnd_codex_cache_session_list");
+          } catch {
+            /* ignore */
+          }
+          setSessionRefreshKey((k) => k + 1);
+        }
+        if (paths.some((p) => p.startsWith("Notes/"))) {
+          invalidateWikiLinkSuggestions();
+          if (activeTab === "home") fetchHome();
+          else if (["npcs", "locations", "lore", "quests"].includes(activeTab)) {
+            const catMap: Record<string, string> = {
+              npcs: "npc",
+              locations: "location",
+              lore: "lore",
+              quests: "quest",
+            };
+            fetchCategory(catMap[activeTab]);
+          } else if (activeTab === "party") {
+            fetchParty();
+          }
+        }
+      }, 600);
+    },
+    [currentUser, activeTab, fetchHome, fetchCategory, fetchParty, refreshTableState]
+  );
+
+  useSupabaseRealtime(currentUser && currentCampaign?.id ? currentCampaign.id : "", handleRealtimeChange);
+
+  useEffect(() => {
+    return () => {
+      if (realtimeTimerRef.current) clearTimeout(realtimeTimerRef.current);
+    };
+  }, []);
+
   const handleLogout = async () => {
     await fetch("/api/login", { method: "DELETE" });
     setCurrentUser(null);
@@ -426,13 +491,46 @@ function CampaignHubInner() {
   };
 
   const handleClaimItem = async (path: string, owner: string) => {
-    const res = await fetch("/api/note/meta", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path, key: "owner", value: owner }),
-    });
-    if (res.ok) {
-      fetchParty();
+    const prevParty = partyData;
+    if (partyData && currentUser) {
+      const isReleasing = /^party$/i.test(owner);
+      const isMineTarget = owner.toLowerCase() === currentUser.character.toLowerCase();
+      const allKnown = [...(partyData.loot || []), ...(partyData.mine || []), ...(partyData.claimed || [])];
+      const targetItem = allKnown.find((it: any) => it.path === path);
+      if (targetItem) {
+        const updatedItem = { ...targetItem, owner };
+        setPartyData({
+          ...partyData,
+          loot: isReleasing
+            ? [...(partyData.loot || []).filter((i: any) => i.path !== path), updatedItem]
+            : (partyData.loot || []).filter((i: any) => i.path !== path),
+          mine: isMineTarget
+            ? [...(partyData.mine || []).filter((i: any) => i.path !== path), updatedItem]
+            : (partyData.mine || []).filter((i: any) => i.path !== path),
+          claimed: !isReleasing && !isMineTarget
+            ? [...(partyData.claimed || []).filter((i: any) => i.path !== path), updatedItem]
+            : (partyData.claimed || []).filter((i: any) => i.path !== path),
+        });
+      }
+    }
+
+    try {
+      const res = await fetch("/api/note/meta", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, key: "owner", value: owner }),
+      });
+      if (res.ok) {
+        toast(/^party$/i.test(owner) ? "Returned item to party stash." : `Claimed for ${owner}.`, { type: "success" });
+        await fetchParty();
+      } else {
+        setPartyData(prevParty);
+        const err = await res.json().catch(() => ({}));
+        toast(err.error || "Could not update item ownership", { type: "error" });
+      }
+    } catch (e: any) {
+      setPartyData(prevParty);
+      toast(e?.message || "Network error updating item ownership", { type: "error" });
     }
   };
 
@@ -599,7 +697,7 @@ function CampaignHubInner() {
                         title="Download Android APK directly"
                       >
                         <span className="flex items-center gap-1.5">
-                          <Smartphone className="w-3.5 h-3.5 text-amber-400" /> Get Android App (v1.1.3)
+                          <Smartphone className="w-3.5 h-3.5 text-amber-400" /> Get Android App (v1.3.0)
                         </span>
                         <Download className="w-3.5 h-3.5 text-slate-400 group-hover/btn:text-amber-400" />
                       </a>
@@ -1511,6 +1609,7 @@ function CampaignHubInner() {
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
         onSelectNote={(path) => setSelectedNotePath(path)}
+        localNotes={Object.values(notesByCategoryRef.current).flat()}
         actions={[
           {
             id: "roll-d20",
@@ -1649,7 +1748,23 @@ function CampaignHubInner() {
       />
 
       {/* Network & Offline Status Pill */}
-      <NetworkStatusBar />
+      <NetworkStatusBar
+        onReconnect={() => {
+          refreshTableState();
+          if (activeTab === "home") fetchHome();
+          else if (activeTab === "party") fetchParty();
+          else if (activeTab === "sessions") setSessionRefreshKey((k) => k + 1);
+          else if (["npcs", "locations", "lore", "quests"].includes(activeTab)) {
+            const catMap: Record<string, string> = {
+              npcs: "npc",
+              locations: "location",
+              lore: "lore",
+              quests: "quest",
+            };
+            fetchCategory(catMap[activeTab]);
+          }
+        }}
+      />
     </div>
   );
 }

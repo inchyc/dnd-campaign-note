@@ -1,11 +1,11 @@
 import { HttpError, clearSessionCookie, handle, loadUsers, setSessionCookie, throttle, verifyPin } from "@/lib/auth";
-import { getCampaign, getStorage } from "@/lib/campaigns";
+import { getCampaignAsync, getStorage } from "@/lib/campaigns";
 
 export const dynamic = "force-dynamic";
 
 export const POST = handle(async (req: Request) => {
   const { campaign: campaignId, userId, pin } = await req.json();
-  const campaign = getCampaign(String(campaignId || ""));
+  const campaign = await getCampaignAsync(String(campaignId || ""));
   if (!campaign) throw new HttpError(404, "Campaign not found");
   throttle(`${campaign.id}:${userId}`);
   const users = await loadUsers(getStorage(campaign));
