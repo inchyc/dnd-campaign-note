@@ -16,8 +16,10 @@ import {
   Lock,
   Plus,
   Search,
+  Trash2,
 } from "lucide-react";
 import { getStatusBadge } from "@/lib/statusConfig";
+import { DeleteCharacterModal, DeleteCharacterTarget } from "./DeleteCharacterModal";
 
 interface CharacterMeta {
   path: string;
@@ -28,6 +30,9 @@ interface CharacterMeta {
   status?: string;
   class?: string;
   level?: string;
+  userId?: string;
+  playerName?: string;
+  userRole?: "scribe" | "player";
 }
 
 interface ItemMeta {
@@ -47,10 +52,13 @@ interface PartyLootViewProps {
   inventoryPath?: string;
   currentUser: { id: string; name: string; character: string; role: "scribe" | "player" } | null;
   isScribe?: boolean;
+  campaignId?: string;
+  rosterUsers?: Array<{ id: string; name: string; character: string; role: "scribe" | "player" }>;
   onOpenManageRoles?: () => void;
   onSelectNote: (path: string) => void;
   onClaimItem: (path: string, owner: string) => Promise<void>;
   onToggleCharacterVisibility: (path: string, currentVisible: boolean) => Promise<void>;
+  onCharacterDeleted?: (remainingUsers: any[]) => void;
 }
 
 export function PartyLootView({
@@ -61,14 +69,19 @@ export function PartyLootView({
   inventoryPath,
   currentUser,
   isScribe,
+  campaignId = "starving-vilgeismar",
+  rosterUsers = [],
   onOpenManageRoles,
   onSelectNote,
   onClaimItem,
   onToggleCharacterVisibility,
+  onCharacterDeleted,
 }: PartyLootViewProps) {
   const [activeTab, setActiveTab] = useState<"party" | "loot" | "myItems" | "claimed">("party");
   const [claimingPath, setClaimingPath] = useState<string | null>(null);
   const [lootSearchQuery, setLootSearchQuery] = useState<string>("");
+  const [deleteTarget, setDeleteTarget] = useState<DeleteCharacterTarget | null>(null);
+  const scribeCount = rosterUsers.filter((u) => u.role === "scribe").length;
 
   const filteredLoot = loot.filter((item) =>
     !lootSearchQuery.trim() ||
@@ -270,13 +283,42 @@ export function PartyLootView({
                     )}
                   </div>
 
-                  <div className="pt-3 mt-3 border-t border-fantasy-700/50 flex items-center justify-between text-xs text-slate-400">
+                  <div className="pt-3 mt-3 border-t border-fantasy-700/50 flex items-center justify-between gap-2 text-xs text-slate-400">
                     <span className="text-[11px] text-slate-500">
                       {isMine ? "Edit or view dossier" : "View dossier"}
                     </span>
-                    <span className="text-amber-400 font-medium group-hover:translate-x-1 transition-transform flex items-center gap-0.5">
-                      Open <ChevronRight className="w-3.5 h-3.5" />
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {char.userId && (isScribe || char.userId === currentUser?.id) && (() => {
+                        const isLastScribe = char.userRole === "scribe" && scribeCount <= 1;
+                        return (
+                          <button
+                            type="button"
+                            disabled={isLastScribe}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteTarget({
+                                id: char.userId!,
+                                name: char.playerName || char.title,
+                                character: char.title,
+                                role: char.userRole,
+                              });
+                            }}
+                            title={
+                              isLastScribe
+                                ? "Cannot delete the last remaining Scribe"
+                                : `Delete ${char.title} from campaign`
+                            }
+                            className="px-2 py-1 rounded-lg bg-fantasy-800 hover:bg-rose-950/60 border border-fantasy-700 hover:border-rose-600/60 text-slate-400 hover:text-rose-300 text-[11px] font-semibold flex items-center gap-1 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Delete</span>
+                          </button>
+                        );
+                      })()}
+                      <span className="text-amber-400 font-medium group-hover:translate-x-1 transition-transform flex items-center gap-0.5">
+                        Open <ChevronRight className="w-3.5 h-3.5" />
+                      </span>
+                    </div>
                   </div>
                 </div>
               );
@@ -509,6 +551,16 @@ export function PartyLootView({
           )}
         </div>
       )}
+
+      <DeleteCharacterModal
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        campaignId={campaignId}
+        target={deleteTarget}
+        onDeleted={(result) => {
+          onCharacterDeleted?.(result.remainingUsers);
+        }}
+      />
     </div>
   );
 }

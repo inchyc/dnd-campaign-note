@@ -24,7 +24,7 @@ import { SessionQuickRef } from "./SessionQuickRef";
 import { useFeedback } from "./FeedbackContext";
 import { applyJournalToBody } from "@/lib/mutationJournal";
 import { getCachedData, setCachedData } from "@/lib/cache";
-import { extractSessionDateFromMarkdown } from "@/lib/noteClassification";
+import { extractSessionDateFromMarkdown, filterAndSortSessionNotes } from "@/lib/noteClassification";
 
 interface SessionNoteMeta {
   path: string;
@@ -92,6 +92,8 @@ export function SessionNotesView({
   const [composerError, setComposerError] = useState<string | null>(null);
   const [conflictPath, setConflictPath] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const contentAbortRef = useRef<AbortController | null>(null);
+  const contentReqIdRef = useRef(0);
 
   const fetchSessionList = useCallback(
     async (hasCache = false, forceFresh = false, preferPath?: string | null) => {
@@ -108,24 +110,10 @@ export function SessionNotesView({
         if (!res.ok || !data.success) {
           throw new Error(data.error || `Failed to load session notes (HTTP ${res.status})`);
         }
-        const parsed = ((data.notes || []) as SessionNoteMeta[])
-          .filter((n) => !n.path.includes("Notes - Archived") && !n.path.includes(".nomedia"))
-          .map((n) => {
-            const dateMatch = n.path.match(/(\d{4}-\d{2}-\d{2})/);
-            return {
-              ...n,
-              date: dateMatch ? dateMatch[1] : "",
-            };
-          })
-          .sort((a, b) => {
-            if (a.date && b.date) return b.date.localeCompare(a.date);
-            if (a.date) return -1;
-            if (b.date) return 1;
-            return (b.mtime || 0) - (a.mtime || 0);
-          });
+        const parsed = filterAndSortSessionNotes((data.notes || []) as SessionNoteMeta[]);
 
         setSessions(parsed);
-        setCachedData("session_list", parsed);
+        setCachedData("session_list_v2", parsed);
         if (parsed.length > 0) {
           setSelectedSessionPath((prev) => {
             if (preferPath && parsed.some((p) => p.path === preferPath)) return preferPath;
@@ -149,10 +137,20 @@ export function SessionNotesView({
   );
 
   useEffect(() => {
-    const cached = getCachedData<SessionNoteMeta[]>("session_list");
-    if (cached?.data && cached.data.length > 0 && refreshKey === 0) {
-      setSessions(cached.data);
-      setSelectedSessionPath((prev) => initialSessionPath || prev || cached.data[0].path);
+    try {
+      localStorage.removeItem("dnd_codex_cache_session_list");
+    } catch {
+      /* ignore */
+    }
+    const cached = getCachedData<SessionNoteMeta[]>("session_list_v2");
+    const filteredCached = cached?.data ? filterAndSortSessionNotes(cached.data) : [];
+    if (filteredCached.length > 0 && refreshKey === 0) {
+      setSessions(filteredCached);
+      setSelectedSessionPath((prev) => {
+        if (initialSessionPath && filteredCached.some((p) => p.path === initialSessionPath)) return initialSessionPath;
+        if (prev && filteredCached.some((p) => p.path === prev)) return prev;
+        return filteredCached[0].path;
+      });
       setLoading(false);
       fetchSessionList(true, false, initialSessionPath);
     } else {
@@ -162,6 +160,11 @@ export function SessionNotesView({
 
   const loadSelectedNoteContent = useCallback(
     async (notePath: string, forceFresh = false) => {
+      contentAbortRef.current?.abort();
+      const controller = new AbortController();
+      contentAbortRef.current = controller;
+      const reqId = ++contentReqIdRef.current;
+
       const cacheKey = `session_note_${notePath}`;
       const cachedNote = !forceFresh ? getCachedData<string>(cacheKey) : null;
       if (cachedNote?.data !== undefined) {
@@ -172,14 +175,18 @@ export function SessionNotesView({
       }
       setContentError(null);
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      let timedOut = false;
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, 15000);
       try {
-        const res = await fetch(`/api/note?path=${encodeURIComponent(notePath)}`, {
+        const res = await fetch(`/api/note?path=${encodeURIComponent(notePath)}&lite=1`, {
           signal: controller.signal,
           cache: "no-store",
         });
         const data = await res.json();
+        if (reqId !== contentReqIdRef.current) return;
         if (!res.ok || !data.success) {
           throw new Error(data.error || `Failed to load note (HTTP ${res.status})`);
         }
@@ -187,6 +194,8 @@ export function SessionNotesView({
         setCachedData(cacheKey, body);
         setNoteContent(applyJournalToBody(notePath, body));
       } catch (err: any) {
+        if (reqId !== contentReqIdRef.current) return;
+        if (err?.name === "AbortError" && !timedOut) return;
         const msg =
           err?.name === "AbortError"
             ? "Timed out loading session note content."
@@ -195,7 +204,9 @@ export function SessionNotesView({
         setContentError(msg);
       } finally {
         clearTimeout(timeoutId);
-        setContentLoading(false);
+        if (reqId === contentReqIdRef.current) {
+          setContentLoading(false);
+        }
       }
     },
     []
@@ -206,6 +217,9 @@ export function SessionNotesView({
     setAiResult(null);
     setAiError(null);
     loadSelectedNoteContent(selectedSessionPath, refreshKey > 0);
+    return () => {
+      contentAbortRef.current?.abort();
+    };
   }, [selectedSessionPath, refreshKey, loadSelectedNoteContent]);
 
   const runLoreMasterForDate = async (sessionDate: string) => {
@@ -332,6 +346,7 @@ export function SessionNotesView({
 
       try {
         localStorage.removeItem("dnd_codex_cache_session_list");
+        localStorage.removeItem("dnd_codex_cache_session_list_v2");
         if (data.path) {
           localStorage.removeItem(`dnd_codex_cache_session_note_${data.path}`);
         }

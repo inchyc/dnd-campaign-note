@@ -44,6 +44,7 @@ import { useTableTools } from "./TableToolsContext";
 import { getCachedData, setCachedData } from "@/lib/cache";
 import { EquipmentCatalogModal } from "./character/EquipmentCatalogModal";
 import { SpellCatalogModal } from "./character/SpellCatalogModal";
+import { DeleteCharacterModal } from "./DeleteCharacterModal";
 import {
   calcModifier,
   formatModifier,
@@ -60,6 +61,7 @@ interface CharacterSheetViewProps {
   } | null;
   activeCampaign?: { id: string; name: string } | null;
   isScribe?: boolean;
+  onRosterUpdated?: (users: any[]) => void;
 }
 
 const SKILL_DEFINITIONS: Array<{ id: string; name: string; stat: "str" | "dex" | "con" | "int" | "wis" | "cha" }> = [
@@ -87,9 +89,10 @@ export function CharacterSheetView({
   currentUser,
   activeCampaign,
   isScribe = false,
+  onRosterUpdated,
 }: CharacterSheetViewProps) {
   const [selectedUserId, setSelectedUserId] = useState<string>(currentUser?.id || "");
-  const [roster, setRoster] = useState<Array<{ id: string; name: string; character: string }>>([]);
+  const [roster, setRoster] = useState<Array<{ id: string; name: string; character: string; role?: "scribe" | "player" }>>([]);
   const [sheet, setSheet] = useState<CharacterSheetData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -110,7 +113,6 @@ export function CharacterSheetView({
   const [showEquipCatalog, setShowEquipCatalog] = useState(false);
   const [showSpellCatalog, setShowSpellCatalog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deletingCharacter, setDeletingCharacter] = useState(false);
 
   // Live Dice Roll Banner
   const { toast, confirm: confirmDialog, prompt: promptDialog } = useFeedback();
@@ -157,7 +159,7 @@ export function CharacterSheetView({
         lastSyncedAtRef.current = data.sheet.updatedAt || 0;
         setSaveStatus("idle");
         setConflictSheet(null);
-        if (data.isNew) {
+        if (data.isNew && userId === currentUser?.id) {
           setShowWizard(true);
         }
       } else if (!cached?.data) {
@@ -780,16 +782,23 @@ export function CharacterSheetView({
           )}
 
           {/* Delete Character */}
-          {canEdit && (
-            <button
-              type="button"
-              onClick={() => setShowDeleteConfirm(true)}
-              className="p-2 rounded-xl bg-stone-800 hover:bg-red-950/60 border border-stone-700 hover:border-red-600/60 text-stone-400 hover:text-red-400 transition"
-              title="Delete this character from campaign"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
+          {canEdit && (() => {
+            const targetMember = roster.find((r) => r.id === selectedUserId);
+            const scribeCount = roster.filter((r) => r.role === "scribe").length;
+            const isLastScribe = targetMember?.role === "scribe" && scribeCount <= 1;
+            return (
+              <button
+                type="button"
+                disabled={isLastScribe}
+                onClick={() => setShowDeleteConfirm(true)}
+                className="px-2.5 py-2 rounded-xl bg-stone-800 hover:bg-red-950/60 border border-stone-700 hover:border-red-600/60 text-stone-300 hover:text-red-300 text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                title={isLastScribe ? "Cannot delete the last remaining Scribe" : "Delete this character from campaign"}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Delete</span>
+              </button>
+            );
+          })()}
 
           {/* Save Status & Save Button */}
           {canEdit && (
@@ -1927,91 +1936,29 @@ export function CharacterSheetView({
       )}
 
       {/* Delete Character Confirmation Modal */}
-      {showDeleteConfirm && sheet && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-2xl bg-stone-900 border border-red-800/80 shadow-2xl p-6 space-y-4">
-            <div className="flex items-center gap-3 text-red-400">
-              <div className="p-2.5 rounded-xl bg-red-950 border border-red-800">
-                <Trash2 className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-base font-serif font-bold text-red-200">Delete Character?</h3>
-                <p className="text-xs text-stone-400">This action cannot be undone.</p>
-              </div>
-            </div>
-
-            <div className="p-3.5 rounded-xl bg-stone-950 border border-stone-800 text-xs text-stone-300 space-y-2">
-              <p>
-                You are about to delete <strong className="text-amber-300">{sheet.character}</strong> (Player: {sheet.name}).
-              </p>
-              <div className="text-stone-400 space-y-1 text-[11px] pt-1">
-                <div>• Removes character from the campaign roster & logins.</div>
-                <div>• Deletes active character sheet and combat stats.</div>
-                <div>• Archives their Obsidian note to <code className="text-amber-400">Notes/PC Notes/Archive/</code> so campaign history is preserved.</div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={deletingCharacter}
-                className="px-4 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-semibold"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={deletingCharacter}
-                onClick={async () => {
-                  if (!activeCampaign?.id || !sheet.userId) return;
-                  setDeletingCharacter(true);
-                  try {
-                    const res = await fetch(`/api/campaigns/${activeCampaign.id}/users`, {
-                      method: "DELETE",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ userId: sheet.userId }),
-                    });
-                    const data = await res.json();
-                    if (!res.ok || !data.success) {
-                      toast(data.error || "Failed to delete character", { type: "error" });
-                      setDeletingCharacter(false);
-                      return;
-                    }
-                    setShowDeleteConfirm(false);
-                    if (data.wasSelf) {
-                      window.location.reload();
-                    } else {
-                      const remaining = data.remainingUsers || [];
-                      setRoster(remaining);
-                      if (remaining.length > 0) {
-                        setSelectedUserId(remaining[0].id);
-                      }
-                    }
-                  } catch (e: any) {
-                    toast("Error deleting character: " + e.message, { type: "error" });
-                  } finally {
-                    setDeletingCharacter(false);
-                  }
-                }}
-                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center gap-1.5 shadow"
-              >
-                {deletingCharacter ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Deleting...</span>
-                  </>
-                ) : (
-                  <>
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Confirm Delete</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeleteCharacterModal
+        isOpen={showDeleteConfirm && !!sheet}
+        onClose={() => setShowDeleteConfirm(false)}
+        campaignId={activeCampaign?.id || "starving-vilgeismar"}
+        target={
+          sheet
+            ? {
+                id: sheet.userId,
+                name: sheet.name,
+                character: sheet.character,
+                role: roster.find((r) => r.id === sheet.userId)?.role,
+              }
+            : null
+        }
+        onDeleted={(result) => {
+          const remaining = result.remainingUsers || [];
+          setRoster(remaining);
+          onRosterUpdated?.(remaining);
+          if (remaining.length > 0) {
+            setSelectedUserId(remaining[0].id);
+          }
+        }}
+      />
     </div>
   );
 }

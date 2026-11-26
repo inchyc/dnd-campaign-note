@@ -3,8 +3,12 @@ import assert from "node:assert/strict";
 import {
   buildSessionNoteMarkdown,
   classifyVaultPath,
+  coerceFrontmatterString,
   escapeSqlLike,
   extractSessionDateFromMarkdown,
+  filterAndSortSessionNotes,
+  mapSupabaseNoteRow,
+  stripWikilinks,
 } from "../noteClassification.ts";
 
 test("classifyVaultPath maps _Review, .hub, Session Notes, and Codex folders accurately", () => {
@@ -119,4 +123,69 @@ test("buildSessionNoteMarkdown preserves Obsidian frontmatter verbatim and wraps
 test("escapeSqlLike escapes underscore, percent, and backslash", () => {
   assert.equal(escapeSqlLike("_Review/"), "\\_Review/");
   assert.equal(escapeSqlLike("100%_test\\path"), "100\\%\\_test\\\\path");
+});
+
+test("coerceFrontmatterString and stripWikilinks handle nested YAML arrays and objects safely", () => {
+  assert.equal(coerceFrontmatterString([["The Noble Houses"]]), "The Noble Houses");
+  assert.equal(coerceFrontmatterString([["The Granary Vault"], "Inner Ward"]), "The Granary Vault, Inner Ward");
+  assert.equal(coerceFrontmatterString(42), "42");
+  assert.equal(coerceFrontmatterString(null), undefined);
+  assert.equal(coerceFrontmatterString({ nested: true }), undefined);
+
+  assert.equal(stripWikilinks([["The Noble Houses"]]), "The Noble Houses");
+  assert.equal(stripWikilinks("[[Coral Market]]"), "Coral Market");
+  assert.equal(stripWikilinks(""), undefined);
+});
+
+test("filterAndSortSessionNotes excludes utility files and puts newest session first", () => {
+  const input = [
+    { path: "Notes/Session Notes/Live_Scratchpad.md", title: "Live_Scratchpad", mtime: 9999 },
+    { path: "Notes/Session Notes/Session Notes.md", title: "Session Notes", mtime: 8888 },
+    { path: "Notes/Session Notes/Session Notes Codex - Player.md", title: "Codex", mtime: 7777 },
+    { path: "Notes/Session Notes/Notes - Archived.md", title: "Archived", mtime: 6666 },
+    { path: "Notes/Session Notes/Session Notes 2026-04-29.md", title: "2026-04-29", mtime: 100 },
+    { path: "Notes/Session Notes/Session Notes 2026-11-11.md", title: "2026-11-11", mtime: 200 },
+    { path: "Notes/Session Notes/Session Notes 2026-11-25.md", title: "2026-11-25", mtime: 300 },
+  ];
+
+  const result = filterAndSortSessionNotes(input);
+  assert.deepEqual(
+    result.map((s) => s.date),
+    ["2026-11-25", "2026-11-11", "2026-04-29"]
+  );
+});
+
+test("mapSupabaseNoteRow safely maps rows with array-valued faction and location frontmatter", () => {
+  const npcRow = {
+    path: "Notes/NPCs/NPC - Lord Henrik Vaust.md",
+    title: "Lord Henrik Vaust",
+    category: "npc",
+    subcategory: null,
+    summary: "A minor noble",
+    status: "active",
+    priority: "medium",
+    visibility: "party",
+    character: null,
+    frontmatter: { faction: [["The Noble Houses"]], location: "Noble Quarter" },
+    mtime: 123456,
+  };
+  const mappedNpc = mapSupabaseNoteRow(npcRow, false);
+  assert.equal(mappedNpc.faction, "The Noble Houses");
+  assert.equal(mappedNpc.location, "Noble Quarter");
+
+  const sessionRow = {
+    path: "Notes/Session Notes/Session Notes 2026-04-29.md",
+    title: "Session Notes 2026-04-29",
+    category: "session",
+    subcategory: null,
+    summary: "Granary Vault",
+    status: "active",
+    priority: "medium",
+    visibility: "party",
+    character: null,
+    frontmatter: { location: [["The Granary Vault"]] },
+    mtime: 123457,
+  };
+  const mappedSession = mapSupabaseNoteRow(sessionRow, false);
+  assert.equal(mappedSession.location, "The Granary Vault");
 });

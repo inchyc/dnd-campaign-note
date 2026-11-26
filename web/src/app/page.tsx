@@ -32,6 +32,7 @@ import {
   Smartphone,
   Download,
   Menu,
+  AlertCircle,
 } from "lucide-react";
 import { LoginView } from "@/components/LoginView";
 import { NoteModal } from "@/components/NoteModal";
@@ -133,6 +134,8 @@ function CampaignHubInner() {
 
   // Party & Loot data
   const [partyData, setPartyData] = useState<any>(null);
+  const [partyLoading, setPartyLoading] = useState(false);
+  const [partyError, setPartyError] = useState<string | null>(null);
 
   // Session Notes refresh & deep-link targeting
   const [targetSessionPath, setTargetSessionPath] = useState<string | null>(null);
@@ -306,26 +309,64 @@ function CampaignHubInner() {
     }
   }, []);
 
-  // Fetch Party & Loot with instant stale-while-revalidate
-  const fetchParty = useCallback(async () => {
-    const cached = getCachedData<any>("party_data");
-    if (cached?.data) {
-      const c = cached.data;
-      if (c.characters) c.characters = applyJournalToNotes(c.characters);
-      setPartyData((prev: any) => prev || c);
-    }
-    try {
-      const res = await fetch("/api/party");
-      const data = await res.json();
-      if (data.success) {
-        if (data.characters) data.characters = applyJournalToNotes(data.characters);
-        setPartyData(data);
-        setCachedData("party_data", data);
+  // Fetch Party & Loot with instant stale-while-revalidate + explicit loading/error state
+  const fetchParty = useCallback(async (forceFresh = false) => {
+    let hasSeed = false;
+    if (!forceFresh) {
+      const cached = getCachedData<any>("party_data");
+      if (cached?.data) {
+        hasSeed = true;
+        const c = cached.data;
+        if (c.characters) c.characters = applyJournalToNotes(c.characters);
+        setPartyData((prev: any) => prev || c);
       }
-    } catch (e) {
-      console.warn("Loading cached party data", e);
+    }
+    if (!hasSeed) setPartyLoading(true);
+    setPartyError(null);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch("/api/party", { signal: controller.signal, cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `Failed to load Party & Camp Loot (HTTP ${res.status})`);
+      }
+      if (data.characters) data.characters = applyJournalToNotes(data.characters);
+      setPartyData(data);
+      setCachedData("party_data", data);
+    } catch (e: any) {
+      const msg =
+        e?.name === "AbortError"
+          ? "Timed out loading Party & Camp Loot. Please retry."
+          : e?.message || "Failed to load Party & Camp Loot.";
+      console.warn("Failed fetching party data", e);
+      setPartyError(msg);
+    } finally {
+      clearTimeout(timeoutId);
+      setPartyLoading(false);
     }
   }, []);
+
+  const handleRosterChanged = useCallback(
+    (updatedUsers?: Array<{ id: string; name: string; character: string; role: "scribe" | "player" }>) => {
+      if (updatedUsers && currentUser) {
+        const self = updatedUsers.find((u) => u.id === currentUser.id);
+        if (self && self.role !== currentUser.role) {
+          setCurrentUser({ ...currentUser, role: self.role });
+        }
+      }
+      try {
+        localStorage.removeItem("dnd_codex_cache_party_data");
+        localStorage.removeItem("dnd_codex_cache_home_dashboard");
+      } catch {
+        /* ignore */
+      }
+      fetchParty(true);
+      fetchHome();
+    },
+    [currentUser, fetchParty, fetchHome]
+  );
 
   // Quietly prefetch common categories in background after sign-in for instant tab switching
   useEffect(() => {
@@ -401,6 +442,7 @@ function CampaignHubInner() {
         if (paths.some((p) => p.startsWith("Notes/Session Notes/"))) {
           try {
             localStorage.removeItem("dnd_codex_cache_session_list");
+            localStorage.removeItem("dnd_codex_cache_session_list_v2");
           } catch {
             /* ignore */
           }
@@ -1284,20 +1326,48 @@ function CampaignHubInner() {
         )}
 
         {/* VIEW 4: PARTY & LOOT */}
-        {activeTab === "party" && partyData && (
-          <PartyLootView
-            characters={partyData.characters || []}
-            loot={partyData.loot || []}
-            myItems={partyData.mine || []}
-            claimedItems={partyData.claimed || []}
-            inventoryPath={partyData.inventoryPath}
-            currentUser={currentUser}
-            isScribe={isScribe}
-            onOpenManageRoles={() => setIsManageRolesOpen(true)}
-            onSelectNote={(path) => setSelectedNotePath(path)}
-            onClaimItem={handleClaimItem}
-            onToggleCharacterVisibility={handleToggleCharacterVisibility}
-          />
+        {activeTab === "party" && (
+          <div className="space-y-4">
+            {partyError && (
+              <div className="p-4 rounded-xl bg-rose-950/50 border border-rose-700/60 text-rose-200 text-xs flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                  <span>{partyError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => fetchParty(true)}
+                  className="px-3 py-1 rounded-lg bg-rose-800/70 hover:bg-rose-700 text-white font-semibold"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {partyLoading && !partyData ? (
+              <div className="py-24 flex flex-col items-center justify-center gap-3 text-slate-400 text-xs">
+                <RefreshCw className="w-7 h-7 animate-spin text-amber-400" />
+                <span>Loading Party &amp; Camp Stash...</span>
+              </div>
+            ) : partyData ? (
+              <PartyLootView
+                characters={partyData.characters || []}
+                loot={partyData.loot || []}
+                myItems={partyData.mine || []}
+                claimedItems={partyData.claimed || []}
+                inventoryPath={partyData.inventoryPath}
+                currentUser={currentUser}
+                isScribe={isScribe}
+                campaignId={currentCampaign?.id || "starving-vilgeismar"}
+                rosterUsers={partyData.rosterUsers || []}
+                onOpenManageRoles={() => setIsManageRolesOpen(true)}
+                onSelectNote={(path) => setSelectedNotePath(path)}
+                onClaimItem={handleClaimItem}
+                onToggleCharacterVisibility={handleToggleCharacterVisibility}
+                onCharacterDeleted={(remainingUsers) => handleRosterChanged(remainingUsers)}
+              />
+            ) : null}
+          </div>
         )}
 
         {/* VIEW 5: LIVE SCRATCHPAD & SCRIBE TOOLS */}
@@ -1451,6 +1521,7 @@ function CampaignHubInner() {
             currentUser={currentUser}
             activeCampaign={currentCampaign}
             isScribe={isScribe}
+            onRosterUpdated={(users) => handleRosterChanged(users)}
           />
         )}
 
@@ -1597,6 +1668,7 @@ function CampaignHubInner() {
           } else if (activeTab === "sessions" || selectedNotePath?.includes("Session Notes/")) {
             try {
               localStorage.removeItem("dnd_codex_cache_session_list");
+              localStorage.removeItem("dnd_codex_cache_session_list_v2");
               if (selectedNotePath) {
                 localStorage.removeItem(`dnd_codex_cache_session_note_${selectedNotePath}`);
               }
@@ -1713,6 +1785,7 @@ function CampaignHubInner() {
           if (newPath.includes("Session Notes/")) {
             try {
               localStorage.removeItem("dnd_codex_cache_session_list");
+              localStorage.removeItem("dnd_codex_cache_session_list_v2");
             } catch {
               /* ignore */
             }
@@ -1742,13 +1815,7 @@ function CampaignHubInner() {
         onClose={() => setIsManageRolesOpen(false)}
         campaignId={currentCampaign?.id || "starving-vilgeismar"}
         currentUserId={currentUser.id}
-        onRolesUpdated={(updatedUsers) => {
-          const self = updatedUsers.find((u) => u.id === currentUser.id);
-          if (self && self.role !== currentUser.role) {
-            setCurrentUser({ ...currentUser, role: self.role });
-          }
-          fetchParty();
-        }}
+        onRolesUpdated={(updatedUsers) => handleRosterChanged(updatedUsers)}
       />
 
       {/* Network & Offline Status Pill */}

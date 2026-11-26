@@ -1,6 +1,7 @@
 import matter from "gray-matter";
 import type { Ctx, HubUser } from "./auth";
-import { walk } from "./storage";
+import { mapSupabaseNoteRow, stripWikilinks } from "./noteClassification";
+import { SupabaseStorage, walk } from "./storage";
 import { getSupabaseAdmin, isSupabaseConfigured } from "./supabaseClient";
 
 export type Category = "npc" | "location" | "lore" | "quest" | "item" | "party" | "session";
@@ -170,26 +171,11 @@ export function updateIndexedNote(campaignId: string, filePath: string, newRaw: 
   return updated;
 }
 
-function mapSupabaseRow(row: any, includeBody: boolean): IndexedNote {
+export function mapSupabaseRow(row: any, includeBody: boolean): IndexedNote {
+  const mapped = mapSupabaseNoteRow(row, includeBody);
   return {
-    path: row.path,
-    title: row.title,
-    category: row.category as Category,
-    sub: row.subcategory || undefined,
-    summary: row.summary || "",
-    status: row.status,
-    faction: row.frontmatter?.faction?.replace(/\[\[|\]\]/g, ""),
-    location: row.frontmatter?.location?.replace(/\[\[|\]\]/g, ""),
-    priority: row.priority,
-    secret: row.visibility === "dm",
-    revealed: row.frontmatter?.revealed === true || row.frontmatter?.revealed === "true",
-    owner: row.character || row.frontmatter?.owner,
-    visibleToParty: row.visibility === "party" || row.frontmatter?.visible_to_party === true,
-    playerField: row.frontmatter?.player,
-    mtime: Number(row.mtime) || Date.now(),
-    raw: includeBody ? row.raw_content || "" : "",
-    body: includeBody ? row.body || "" : "",
-    frontmatter: row.frontmatter || {},
+    ...mapped,
+    category: mapped.category as Category,
   };
 }
 
@@ -213,9 +199,15 @@ export async function loadIndexMeta(ctx: Pick<Ctx, "campaign" | "storage">, forc
         .eq("campaign_id", ctx.campaign.id);
 
       if (!error && data && data.length > 0) {
-        const notes: IndexedNote[] = data
-          .filter((row) => row.path.startsWith("Notes/") && row.path.toLowerCase().endsWith(".md"))
-          .map((row) => mapSupabaseRow(row, false));
+        const notes: IndexedNote[] = [];
+        for (const row of data) {
+          if (!row?.path || !row.path.startsWith("Notes/") || !row.path.toLowerCase().endsWith(".md")) continue;
+          try {
+            notes.push(mapSupabaseRow(row, false));
+          } catch (rowErr) {
+            console.warn("Skipping malformed Supabase note row in loadIndexMeta:", row.path, rowErr);
+          }
+        }
         notes.sort((a, b) => a.title.localeCompare(b.title));
         metaCache.set(ctx.campaign.id, { at: Date.now(), notes });
         return notes;
@@ -242,8 +234,15 @@ export async function loadIndex(ctx: Pick<Ctx, "campaign" | "storage">, forceFre
         .eq("campaign_id", ctx.campaign.id);
 
       if (!error && data && data.length > 0) {
-        const mdRows = data.filter((row) => row.path.startsWith("Notes/") && row.path.toLowerCase().endsWith(".md"));
-        const notes: IndexedNote[] = mdRows.map((row) => mapSupabaseRow(row, true));
+        const notes: IndexedNote[] = [];
+        for (const row of data) {
+          if (!row?.path || !row.path.startsWith("Notes/") || !row.path.toLowerCase().endsWith(".md")) continue;
+          try {
+            notes.push(mapSupabaseRow(row, true));
+          } catch (rowErr) {
+            console.warn("Skipping malformed Supabase note row in loadIndex:", row.path, rowErr);
+          }
+        }
         notes.sort((a, b) => a.title.localeCompare(b.title));
         cache.set(ctx.campaign.id, { at: Date.now(), notes });
         metaCache.set(ctx.campaign.id, { at: Date.now(), notes });
@@ -259,6 +258,15 @@ export async function loadIndex(ctx: Pick<Ctx, "campaign" | "storage">, forceFre
     const manifestNotes = bundledManifest.notes as IndexedNote[];
     cache.set(ctx.campaign.id, { at: Date.now(), notes: manifestNotes });
     return manifestNotes;
+  }
+
+  // Never walk SupabaseStorage file-by-file (~600 HTTP calls) when Supabase is active
+  if (ctx.storage instanceof SupabaseStorage) {
+    if (hit) return hit.notes;
+    if (bundledManifest?.notes && (bundledManifest.campaignId === ctx.campaign.id || ctx.campaign.id === "starving-miracle")) {
+      return bundledManifest.notes as IndexedNote[];
+    }
+    return [];
   }
 
   try {
@@ -291,8 +299,8 @@ export async function loadIndex(ctx: Pick<Ctx, "campaign" | "storage">, forceFre
             sub,
             summary: firstSummary(parsed.content),
             status: str(fm.status),
-            faction: str(fm.faction)?.replace(/\[\[|\]\]/g, ""),
-            location: str(fm.location)?.replace(/\[\[|\]\]/g, ""),
+            faction: stripWikilinks(fm.faction),
+            location: stripWikilinks(fm.location),
             priority: str(fm.priority),
             secret,
             revealed: fm.revealed === true || fm.revealed === "true",

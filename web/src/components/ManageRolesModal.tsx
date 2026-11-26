@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { JoinCampaignModal } from "./JoinCampaignModal";
 import { useFeedback } from "./FeedbackContext";
+import { DeleteCharacterModal, DeleteCharacterTarget } from "./DeleteCharacterModal";
 
 interface UserItem {
   id: string;
@@ -41,12 +42,13 @@ export function ManageRolesModal({
   currentUserId,
   onRolesUpdated,
 }: ManageRolesModalProps) {
-  const { confirm: confirmDialog, prompt: promptDialog, toast } = useFeedback();
+  const { prompt: promptDialog, toast } = useFeedback();
   const [users, setUsers] = useState<UserItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isAddPlayerOpen, setIsAddPlayerOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteCharacterTarget | null>(null);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -283,35 +285,14 @@ export function ManageRolesModal({
                     {/* Delete Player Button */}
                     <button
                       type="button"
-                      onClick={async () => {
-                        const ok = await confirmDialog({
-                          title: `Remove ${u.character}?`,
-                          message: `Are you sure you want to delete ${u.character} (${u.name})? This will remove them from the campaign and archive their character note.`,
-                          confirmLabel: "Remove Player",
-                          destructive: true,
-                        });
-                        if (!ok) return;
-                        setUpdatingId(u.id);
-                        try {
-                          const res = await fetch(`/api/campaigns/${campaignId}/users`, {
-                            method: "DELETE",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ userId: u.id }),
-                          });
-                          const data = await res.json();
-                          if (!res.ok || !data.success) {
-                            setErrorMsg(data.error || "Failed to delete user");
-                            return;
-                          }
-                          const nextUsers = users.filter((usr) => usr.id !== u.id);
-                          setUsers(nextUsers);
-                          if (onRolesUpdated) onRolesUpdated(nextUsers);
-                        } catch (err: any) {
-                          setErrorMsg(err.message || "Failed to delete user");
-                        } finally {
-                          setUpdatingId(null);
-                        }
-                      }}
+                      onClick={() =>
+                        setDeleteTarget({
+                          id: u.id,
+                          name: u.name,
+                          character: u.character,
+                          role: u.role,
+                        })
+                      }
                       disabled={isUpdating || isYou}
                       title={isYou ? "Cannot delete yourself from roster management" : "Delete this character from campaign"}
                       className="p-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-red-400 hover:bg-red-950/40 border border-transparent hover:border-red-700/60 transition disabled:opacity-30 disabled:cursor-not-allowed"
@@ -359,6 +340,19 @@ export function ManageRolesModal({
           allowScribeRole={true}
           onJoined={() => {
             fetchUsers();
+            onRolesUpdated?.(users);
+          }}
+        />
+
+        <DeleteCharacterModal
+          isOpen={!!deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          campaignId={campaignId}
+          target={deleteTarget}
+          onDeleted={(result) => {
+            const nextUsers = result.remainingUsers || users.filter((usr) => usr.id !== result.deletedUserId);
+            setUsers(nextUsers);
+            onRolesUpdated?.(nextUsers);
           }}
         />
       </div>

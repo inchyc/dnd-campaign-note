@@ -162,3 +162,92 @@ export function buildSessionNoteMarkdown(opts: {
 
   return `${header}# 📓 Session: ${opts.sessionDate}\n\n${body || "## 📝 Rapid Fire Notes\n\n"}\n`;
 }
+
+/** Safely coerces YAML frontmatter values (including nested arrays) into a trimmed string. */
+export function coerceFrontmatterString(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (Array.isArray(value)) {
+    const flattened = (value as unknown[])
+      .flat(Infinity)
+      .filter((v) => v !== undefined && v !== null && v !== "")
+      .map((v) => (v instanceof Date ? v.toISOString() : typeof v === "object" ? "" : String(v).trim()))
+      .filter(Boolean);
+    return flattened.length > 0 ? flattened.join(", ") : undefined;
+  }
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "object") return undefined;
+  const s = String(value).trim();
+  return s || undefined;
+}
+
+/** Strips Obsidian `[[...]]` wikilink brackets safely from any frontmatter value. */
+export function stripWikilinks(value: unknown): string | undefined {
+  const s = coerceFrontmatterString(value);
+  if (!s) return undefined;
+  const cleaned = s.replace(/\[\[|\]\]/g, "").trim();
+  return cleaned || undefined;
+}
+
+/** Extracts a YYYY-MM-DD session date from a vault note path. */
+export function extractSessionDateFromPath(notePath: string): string | null {
+  const m = String(notePath || "").match(/(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+}
+
+const IGNORED_SESSION_FILENAMES = new Set([
+  "live_scratchpad.md",
+  "notes - archived.md",
+  "session notes.md",
+  "session notes codex - player.md",
+]);
+
+/** Returns true only for dated session logs (hiding utility/index files from the timeline). */
+export function isDatedSessionNote(note: { path: string; title?: string }): boolean {
+  const p = String(note?.path || "");
+  if (!p || p.includes(".nomedia") || p.includes("Notes - Archived")) return false;
+  const base = (p.replace(/\\/g, "/").split("/").pop() || "").toLowerCase();
+  if (IGNORED_SESSION_FILENAMES.has(base)) return false;
+  return Boolean(extractSessionDateFromPath(p));
+}
+
+/** Filters utility files out of session lists and sorts newest session date first. */
+export function filterAndSortSessionNotes<T extends { path: string; title?: string; mtime?: number }>(
+  notes: T[]
+): Array<T & { date: string }> {
+  return (notes || [])
+    .filter((n) => isDatedSessionNote(n))
+    .map((n) => ({
+      ...n,
+      date: extractSessionDateFromPath(n.path)!,
+    }))
+    .sort((a, b) => {
+      if (a.date !== b.date) return b.date.localeCompare(a.date);
+      return (b.mtime || 0) - (a.mtime || 0);
+    });
+}
+
+/** Maps a Supabase `notes` row into a normalized note metadata/content object safely. */
+export function mapSupabaseNoteRow(row: any, includeBody: boolean) {
+  const fm = (row?.frontmatter && typeof row.frontmatter === "object" ? row.frontmatter : {}) as Record<string, any>;
+  return {
+    path: String(row?.path || ""),
+    title: coerceFrontmatterString(row?.title) || "",
+    category: String(row?.category || "lore"),
+    sub: coerceFrontmatterString(row?.subcategory),
+    summary: coerceFrontmatterString(row?.summary) || "",
+    status: coerceFrontmatterString(row?.status),
+    faction: stripWikilinks(fm.faction),
+    location: stripWikilinks(fm.location),
+    priority: coerceFrontmatterString(row?.priority),
+    secret: row?.visibility === "dm",
+    revealed: fm.revealed === true || fm.revealed === "true",
+    owner: coerceFrontmatterString(row?.character) || coerceFrontmatterString(fm.owner),
+    visibleToParty:
+      row?.visibility === "party" || fm.visible_to_party === true || fm.visible_to_party === "true",
+    playerField: coerceFrontmatterString(fm.player),
+    mtime: Number(row?.mtime) || Date.now(),
+    raw: includeBody ? String(row?.raw_content || "") : "",
+    body: includeBody ? String(row?.body || "") : "",
+    frontmatter: fm,
+  };
+}

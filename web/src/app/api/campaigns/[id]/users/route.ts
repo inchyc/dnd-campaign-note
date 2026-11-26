@@ -1,7 +1,7 @@
 import path from "path";
 import { HttpError, handle, loadUsers, mutateUsers, publicUser, requireCtx, clearSessionCookie, HubUser } from "@/lib/auth";
 import { getCampaignAsync, getStorage } from "@/lib/campaigns";
-import { invalidateIndex } from "@/lib/vault";
+import { invalidateIndex, setFrontmatterKey } from "@/lib/vault";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +26,7 @@ export const DELETE = handle(async (req: Request, { params }: { params: Promise<
 
   const body = await req.json().catch(() => ({}));
   const targetUserId = typeof body.userId === "string" ? body.userId : "";
+  const permanent = body.permanent === true;
   if (!targetUserId) throw new HttpError(400, "Missing userId");
 
   // Authorization: Scribe can delete anyone; player can delete their own character
@@ -47,19 +48,29 @@ export const DELETE = handle(async (req: Request, { params }: { params: Promise<
     return users.filter((u) => u.id !== targetUserId);
   });
 
-  // 1. Archive Obsidian character note(s) to Notes/PC Notes/Archive/
-  const characterNotes = targetUser.characterNotes || [`Notes/PC Notes/${targetUser.character}.md`];
+  // 1. Archive or permanently delete Obsidian character note(s)
+  const characterNotes = Array.from(
+    new Set([...(targetUser.characterNotes || []), `Notes/PC Notes/${targetUser.character}.md`])
+  );
   for (const notePath of characterNotes) {
+    const fileName = path.basename(notePath);
+    const archivePath = `Notes/PC Notes/Archive/${fileName}`;
     try {
-      if (await storage.exists(notePath)) {
+      if (permanent) {
+        if (await storage.exists(notePath)) {
+          await storage.delete(notePath);
+        }
+        if (await storage.exists(archivePath)) {
+          await storage.delete(archivePath);
+        }
+      } else if (await storage.exists(notePath)) {
         const content = await storage.read(notePath);
-        const fileName = path.basename(notePath);
-        const archivePath = `Notes/PC Notes/Archive/${fileName}`;
-        await storage.write(archivePath, content);
+        const archivedContent = setFrontmatterKey(content, "status", "archived");
+        await storage.write(archivePath, archivedContent);
         await storage.delete(notePath);
       }
     } catch (err) {
-      console.warn(`Could not archive character note ${notePath}:`, err);
+      console.warn(`Could not ${permanent ? "delete" : "archive"} character note ${notePath}:`, err);
     }
   }
 
@@ -85,6 +96,7 @@ export const DELETE = handle(async (req: Request, { params }: { params: Promise<
     success: true,
     deletedUserId: targetUserId,
     character: targetUser.character,
+    permanent,
     remainingUsers: remainingUsers.map(publicUser),
     wasSelf: isSelf,
   });

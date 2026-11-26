@@ -6,8 +6,10 @@ import {
   backlinksFor,
   buildLinkMap,
   canEdit,
+  canView,
   displayText,
   invalidateIndex,
+  loadIndexMeta,
   resolveLinks,
   setFrontmatterKey,
   toMeta,
@@ -24,17 +26,35 @@ const PLAYER_KEYS = new Set([
 
 export const GET = handle(async (req: Request) => {
   const ctx = await requireCtx();
-  const path = new URL(req.url).searchParams.get("path");
-  const { note } = await getVisibleNote(ctx, path);
-  const visible = await visibleNotes(ctx);
-  const map = buildLinkMap(visible);
+  const url = new URL(req.url);
+  const path = url.searchParams.get("path");
+  const lite = url.searchParams.get("lite") === "1";
+
+  let note;
+  let visible: Awaited<ReturnType<typeof visibleNotes>> = [];
+  if (lite) {
+    if (typeof path !== "string") throw new HttpError(400, "Missing path");
+    const allMeta = await loadIndexMeta(ctx);
+    const found = allMeta.find((n) => n.path === path);
+    if (!found || !canView(ctx, found, allMeta)) throw new HttpError(404, "Note not found");
+    note = found;
+  } else {
+    ({ note } = await getVisibleNote(ctx, path));
+    visible = await visibleNotes(ctx);
+  }
+
+  const map = lite ? new Map<string, string>() : buildLinkMap(visible);
   const editable = canEdit(ctx, note);
 
   let raw = note.raw;
-  try {
+  if (!raw) {
     raw = await ctx.storage.read(note.path);
-  } catch {
-    /* fallback to note.raw */
+  } else {
+    try {
+      raw = await ctx.storage.read(note.path);
+    } catch {
+      /* fallback to note.raw */
+    }
   }
 
   const parsed = matter(raw);
@@ -60,8 +80,8 @@ export const GET = handle(async (req: Request) => {
         },
         frontmatter,
         body,
-        links: resolveLinks(body, map),
-        backlinks: backlinksFor(note, visible, map),
+        links: lite ? {} : resolveLinks(body, map),
+        backlinks: lite ? [] : backlinksFor(note, visible, map),
         canEdit: editable,
         canPlayerNote: ["npc", "location", "lore"].includes(note.category),
         mtime: await ctx.storage.mtime(note.path).catch(() => note.mtime),

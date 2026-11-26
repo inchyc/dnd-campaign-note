@@ -1,4 +1,4 @@
-import { handle, requireCtx } from "@/lib/auth";
+import { handle, loadUsers, publicUser, requireCtx } from "@/lib/auth";
 import { ownsCharacterNote, toMeta, visibleNotesMeta } from "@/lib/vault";
 
 export const dynamic = "force-dynamic";
@@ -7,16 +7,31 @@ const isUnclaimed = (o?: string) => !o || /^(party|unclaimed)$/i.test(o);
 
 export const GET = handle(async () => {
   const ctx = await requireCtx();
-  const visible = await visibleNotesMeta(ctx);
+  const [visible, users] = await Promise.all([visibleNotesMeta(ctx), loadUsers(ctx.storage)]);
 
   const characters = visible
-    .filter((n) => n.category === "party")
-    .map((n) => ({
-      ...toMeta(n),
-      mine: ownsCharacterNote(ctx.user, n),
-      class: n.frontmatter.class ? String(n.frontmatter.class) : undefined,
-      level: n.frontmatter.level ? String(n.frontmatter.level) : undefined,
-    }));
+    .filter(
+      (n) =>
+        n.category === "party" &&
+        n.sub?.toLowerCase() !== "archive" &&
+        (n.status || "").toLowerCase() !== "archived"
+    )
+    .map((n) => {
+      const matchedUser = users.find(
+        (u) =>
+          (u.characterNotes || []).some((cp) => cp.toLowerCase() === n.path.toLowerCase()) ||
+          n.title.trim().toLowerCase() === u.character.trim().toLowerCase()
+      );
+      return {
+        ...toMeta(n),
+        mine: ownsCharacterNote(ctx.user, n),
+        class: n.frontmatter.class ? String(n.frontmatter.class) : undefined,
+        level: n.frontmatter.level ? String(n.frontmatter.level) : undefined,
+        userId: matchedUser?.id,
+        playerName: matchedUser?.name,
+        userRole: matchedUser?.role,
+      };
+    });
 
   const items = visible.filter((n) => n.category === "item");
   const inventoryNote = items.find((n) => /party inventory/i.test(n.title));
@@ -28,13 +43,17 @@ export const GET = handle(async () => {
     ? items.filter((n) => n !== inventoryNote && !isUnclaimed(n.owner) && n.owner!.toLowerCase() !== ctx.user.character.toLowerCase()).map(toMeta)
     : [];
 
-  return Response.json({
-    success: true,
-    characters,
-    loot,
-    mine,
-    claimed,
-    inventoryPath: inventoryNote?.path,
-    character: ctx.user.character,
-  });
+  return Response.json(
+    {
+      success: true,
+      characters,
+      loot,
+      mine,
+      claimed,
+      inventoryPath: inventoryNote?.path,
+      character: ctx.user.character,
+      rosterUsers: users.map(publicUser),
+    },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 });
