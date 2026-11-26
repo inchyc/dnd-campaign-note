@@ -120,6 +120,7 @@ export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
   // Synchronize recording state with Android native bridge and prevent accidental web navigation
   useEffect(() => {
     (window as any).__isAudioRecording = () => isRecording;
+    (window as any).AndroidBridge?.setKeepScreenOn?.(isRecording);
     if (!isRecording) return;
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
@@ -130,6 +131,7 @@ export function AudioScribe({ isScribe, sessionDate }: AudioScribeProps) {
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       (window as any).__isAudioRecording = () => false;
+      (window as any).AndroidBridge?.setKeepScreenOn?.(false);
     };
   }, [isRecording]);
 

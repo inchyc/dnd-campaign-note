@@ -205,6 +205,10 @@ function CampaignHubInner() {
         setIsCreateCampaignOpen(false);
         return true;
       }
+      if (isManageRolesOpen) {
+        setIsManageRolesOpen(false);
+        return true;
+      }
       // Tier 2: Search Dialog
       if (isSearchOpen) {
         setIsSearchOpen(false);
@@ -235,7 +239,7 @@ function CampaignHubInner() {
     return () => {
       (window as any).__handleAndroidBack = undefined;
     };
-  }, [selectedNotePath, isCreateNoteOpen, isCreateCampaignOpen, isSearchOpen, isDrawerOpen, closeDrawer, isMobileMenuOpen, isCampaignMenuOpen, activeTab]);
+  }, [selectedNotePath, isCreateNoteOpen, isCreateCampaignOpen, isManageRolesOpen, isSearchOpen, isDrawerOpen, closeDrawer, isMobileMenuOpen, isCampaignMenuOpen, activeTab]);
 
   // Fetch Home dashboard
   const fetchHome = useCallback(async () => {

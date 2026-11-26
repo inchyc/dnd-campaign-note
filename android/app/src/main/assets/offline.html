@@ -11,8 +11,8 @@
       padding: 0;
     }
     body {
-      background-color: #0f0f13;
-      background-image: radial-gradient(circle at 50% 20%, #1a1726 0%, #0f0f13 75%);
+      background-color: #0e1117;
+      background-image: radial-gradient(circle at 50% 20%, #1a1726 0%, #0e1117 75%);
       color: #e2e8f0;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       min-height: 100vh;
@@ -146,12 +146,12 @@
       </svg>
     </div>
 
-    <div class="badge">
-      <span class="status-dot"></span>Updating Codex
+    <div class="badge" id="badgeEl">
+      <span class="status-dot"></span><span id="badgeText">Updating Codex</span>
     </div>
 
-    <h1>The Astral Conduit is Realigning</h1>
-    <p>
+    <h1 id="headlineEl">The Astral Conduit is Realigning</h1>
+    <p id="messageEl">
       A campaign update is currently deploying or connection was briefly interrupted.<br/>
       Your session is preserved and will reconnect automatically once the server is ready.
     </p>
@@ -160,13 +160,25 @@
       Reconnect to Codex
     </button>
 
-    <div id="countdown" class="countdown">Next probe in 3 seconds...</div>
+    <div id="countdown" class="countdown">Next probe in 3s...</div>
   </div>
 
   <script>
     const TARGET_URL = "https://dnd-campaign-notes-hub.vercel.app";
-    const HEALTH_URL = TARGET_URL + "/api/campaigns";
+    const HEALTH_URL = TARGET_URL + "/api/health";
     let secondsLeft = 3;
+    let isProbing = false;
+
+    function updateStatusCopy() {
+      const offline = navigator.onLine === false;
+      document.getElementById("badgeText").innerText = offline ? "No Signal" : "Updating Codex";
+      document.getElementById("headlineEl").innerText = offline
+        ? "No Signal — Waiting for Connection"
+        : "The Astral Conduit is Realigning";
+      document.getElementById("messageEl").innerHTML = offline
+        ? "Your device appears to be offline or on an unstable signal.<br/>Local note drafts remain saved and will reconnect automatically once signal returns."
+        : "A campaign update is currently deploying or connection was briefly interrupted.<br/>Your session is preserved and will reconnect automatically once the server is ready.";
+    }
 
     function retryNow() {
       document.getElementById("reconnectBtn").innerText = "Connecting...";
@@ -174,8 +186,24 @@
     }
 
     async function probeServer() {
+      if (isProbing) return;
+      updateStatusCopy();
+      if (navigator.onLine === false) {
+        secondsLeft = 3;
+        document.getElementById("countdown").innerText = "Offline — waiting for network...";
+        return;
+      }
+
+      isProbing = true;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
       try {
-        const res = await fetch(HEALTH_URL, { method: "GET", cache: "no-store", mode: "cors" });
+        const res = await fetch(HEALTH_URL, {
+          method: "GET",
+          cache: "no-store",
+          mode: "cors",
+          signal: controller.signal,
+        });
         if (res.ok) {
           document.getElementById("countdown").innerText = "Conduit restored! Entering codex...";
           window.location.href = TARGET_URL;
@@ -183,17 +211,26 @@
         }
       } catch (e) {
         // Still deploying or offline
+      } finally {
+        clearTimeout(timeoutId);
+        isProbing = false;
       }
       secondsLeft = 3;
     }
 
+    updateStatusCopy();
+    window.addEventListener("online", probeServer);
+    window.addEventListener("offline", updateStatusCopy);
+
     setInterval(() => {
+      if (isProbing) return;
       secondsLeft--;
       if (secondsLeft <= 0) {
         document.getElementById("countdown").innerText = "Checking conduit...";
         probeServer();
       } else {
-        document.getElementById("countdown").innerText = "Next probe in " + secondsLeft + "s...";
+        document.getElementById("countdown").innerText =
+          (navigator.onLine === false ? "Offline — next check in " : "Next probe in ") + secondsLeft + "s...";
       }
     }, 1000);
   </script>

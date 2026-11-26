@@ -3,20 +3,29 @@ package com.example.starvingmiracle
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.AlertDialog
+import android.app.DownloadManager
+import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.*
 import android.widget.FrameLayout
 import android.widget.ProgressBar
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
-import androidx.core.app.ActivityCompat
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -25,30 +34,70 @@ import androidx.core.view.updatePadding
 class MainActivity : ComponentActivity() {
 
     private lateinit var webView: WebView
-    // Connects to production Vercel deployment
-    private val appUrl = "https://dnd-campaign-notes-hub.vercel.app"
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    private var pendingPermissionRequest: PermissionRequest? = null
+
+    private val fileChooserLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val callback = filePathCallback ?: return@registerForActivityResult
+            filePathCallback = null
+            val uris: Array<Uri>? = if (result.resultCode == RESULT_OK) {
+                val data = result.data
+                val clip = data?.clipData
+                if (clip != null && clip.itemCount > 0) {
+                    Array(clip.itemCount) { idx -> clip.getItemAt(idx).uri }
+                } else {
+                    WebChromeClient.FileChooserParams.parseResult(result.resultCode, data)
+                }
+            } else {
+                null
+            }
+            callback.onReceiveValue(uris)
+        }
+
+    private val requestAudioPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val req = pendingPermissionRequest ?: return@registerForActivityResult
+            pendingPermissionRequest = null
+            if (granted) {
+                req.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+            } else {
+                req.deny()
+                Toast.makeText(
+                    this,
+                    "Microphone permission is required for Audio Scribe.",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+
+    private inner class AndroidBridge {
+        @JavascriptInterface
+        fun setKeepScreenOn(enabled: Boolean) {
+            runOnUiThread {
+                if (isFinishing || isDestroyed || !::webView.isInitialized) return@runOnUiThread
+                if (!WebViewPolicy.isTrustedAppUrl(webView.url)) return@runOnUiThread
+                if (enabled) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            }
+        }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
+        val obsidianBg = Color.parseColor("#0e1117")
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(obsidianBg),
+            navigationBarStyle = SystemBarStyle.dark(obsidianBg)
+        )
         super.onCreate(savedInstanceState)
 
-        // Request audio recording permissions if not granted
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 101)
-        }
-
-        // Configure edge-to-edge window with matching dark aesthetic
-        window.statusBarColor = Color.parseColor("#0e1117")
-        window.navigationBarColor = Color.parseColor("#0e1117")
-        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
-
-        val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-        insetsController.isAppearanceLightStatusBars = false
-        insetsController.isAppearanceLightNavigationBars = false
-
-        // Wrap WebView in a dark container that respects Android Window Insets (status bar & gesture bar)
+        // Wrap WebView in a dark container that respects system bars, notch cutout, and soft keyboard (IME)
         val rootLayout = FrameLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#0e1117"))
+            setBackgroundColor(obsidianBg)
         }
 
         webView = WebView(this).apply {
@@ -80,40 +129,83 @@ class MainActivity : ComponentActivity() {
         )
         setContentView(rootLayout)
 
-        // Apply safe-area insets to prevent status bar clock & gesture navigation bar from overlapping web content
+        // Apply safe-area + IME insets so status bar, gesture bar, and soft keyboard never overlap editors
         ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { view, insets ->
             val systemBars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
             view.updatePadding(
                 left = systemBars.left,
                 top = systemBars.top,
                 right = systemBars.right,
-                bottom = systemBars.bottom
+                bottom = maxOf(systemBars.bottom, ime.bottom)
             )
             insets
         }
         ViewCompat.requestApplyInsets(rootLayout)
+
+        CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            setAcceptThirdPartyCookies(webView, false)
+        }
 
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
             mediaPlaybackRequiresUserGesture = false
-            allowFileAccess = true
+            allowFileAccess = false
             allowContentAccess = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            setSupportMultipleWindows(false)
             loadWithOverviewMode = true
             useWideViewPort = true
             cacheMode = WebSettings.LOAD_DEFAULT
         }
 
+        webView.addJavascriptInterface(AndroidBridge(), "AndroidBridge")
+
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            if (url.isNullOrBlank()) return@setDownloadListener
+            val filename = WebViewPolicy.sanitizeDownloadFilename(
+                URLUtil.guessFileName(url, contentDisposition, mimeType)
+            )
+            try {
+                val uri = Uri.parse(url)
+                if (uri.scheme.equals("http", ignoreCase = true) ||
+                    uri.scheme.equals("https", ignoreCase = true)
+                ) {
+                    val request = DownloadManager.Request(uri).apply {
+                        if (!mimeType.isNullOrBlank()) setMimeType(mimeType)
+                        val cookies = CookieManager.getInstance().getCookie(url)
+                        if (!cookies.isNullOrEmpty()) {
+                            addRequestHeader("Cookie", cookies)
+                        }
+                        if (!userAgent.isNullOrBlank()) {
+                            addRequestHeader("User-Agent", userAgent)
+                        }
+                        setTitle(filename)
+                        setDescription("Downloading $filename")
+                        setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                        setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename)
+                    }
+                    val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                    dm.enqueue(request)
+                    Toast.makeText(this, "Downloading $filename to Downloads...", Toast.LENGTH_SHORT).show()
+                } else {
+                    openExternalUrl(url)
+                }
+            } catch (_: Exception) {
+                openExternalUrl(url)
+            }
+        }
+
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                val url = request?.url?.toString() ?: ""
-                // Open external links (e.g. 5e.tools) in external system browser
-                if (url.contains("5e.tools") || (!url.contains("localhost") && !url.contains("10.70.70.28") && !url.contains("vercel.app") && !url.contains("android_asset"))) {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                    startActivity(intent)
+                val url = request?.url?.toString()
+                if (WebViewPolicy.shouldOpenExternally(url)) {
+                    openExternalUrl(url!!)
                     return true
                 }
                 return false
@@ -150,15 +242,73 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Automatically grant web audio recording permissions for Audio Scribe
+            override fun onShowFileChooser(
+                webView: WebView?,
+                callback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                this@MainActivity.filePathCallback?.onReceiveValue(null)
+                this@MainActivity.filePathCallback = callback
+                val intent = try {
+                    fileChooserParams?.createIntent()
+                        ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "*/*"
+                        }
+                } catch (_: Exception) {
+                    Intent(Intent.ACTION_GET_CONTENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                    }
+                }
+                return try {
+                    fileChooserLauncher.launch(intent)
+                    true
+                } catch (_: ActivityNotFoundException) {
+                    this@MainActivity.filePathCallback?.onReceiveValue(null)
+                    this@MainActivity.filePathCallback = null
+                    Toast.makeText(
+                        this@MainActivity,
+                        "No file picker app available.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    false
+                }
+            }
+
+            // Grant web audio capture only to the exact production origin after OS permission check
             override fun onPermissionRequest(request: PermissionRequest?) {
-                request?.grant(request.resources)
+                if (request == null) return
+                val origin = request.origin
+                val wantsAudio = request.resources?.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE) == true
+                if (!wantsAudio || !WebViewPolicy.isTrustedOriginHost(origin?.scheme, origin?.host)) {
+                    request.deny()
+                    return
+                }
+
+                pendingPermissionRequest?.deny()
+                pendingPermissionRequest = null
+
+                if (ContextCompat.checkSelfPermission(
+                        this@MainActivity,
+                        Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                } else {
+                    pendingPermissionRequest = request
+                    requestAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
             }
         }
 
         // Handle Android Back button with multi-tier hierarchy & recording-aware exit confirmation
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if (webView.url?.startsWith("file:///android_asset/") == true) {
+                    showExitDialog(false)
+                    return
+                }
                 // First query web app: let it close open modals, drawers, or switch back to Home tab
                 webView.evaluateJavascript("window.__handleAndroidBack ? window.__handleAndroidBack() : false") { result ->
                     val handled = result?.replace("\"", "")?.trim()?.equals("true", ignoreCase = true) == true
@@ -173,10 +323,51 @@ class MainActivity : ComponentActivity() {
             }
         })
 
-        webView.loadUrl(appUrl)
+        webView.loadUrl(WebViewPolicy.PRODUCTION_URL)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::webView.isInitialized) {
+            webView.onResume()
+        }
+    }
+
+    override fun onPause() {
+        CookieManager.getInstance().flush()
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (::webView.isInitialized) {
+            webView.onPause()
+        }
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        pendingPermissionRequest?.deny()
+        pendingPermissionRequest = null
+        filePathCallback?.onReceiveValue(null)
+        filePathCallback = null
+        if (::webView.isInitialized) {
+            (webView.parent as? ViewGroup)?.removeView(webView)
+            webView.stopLoading()
+            webView.destroy()
+        }
+        super.onDestroy()
+    }
+
+    private fun openExternalUrl(url: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, "No app installed to open this link.", Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            Toast.makeText(this, "Could not open external link.", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun showExitDialog(isRecording: Boolean) {
+        if (isFinishing || isDestroyed) return
+
         val title = if (isRecording) "⚠️ Live Session Recording Active" else "Exit D&D Campaign Notes?"
         val message = if (isRecording) {
             "An audio session recording is currently active!\n\nExiting now will stop and discard your recording.\n\nAre you sure you want to stop recording and exit?"
