@@ -132,6 +132,10 @@ function CampaignHubInner() {
   // Party & Loot data
   const [partyData, setPartyData] = useState<any>(null);
 
+  // Session Notes refresh & deep-link targeting
+  const [targetSessionPath, setTargetSessionPath] = useState<string | null>(null);
+  const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
+
   // Modals & Drawers
   const [selectedNotePath, setSelectedNotePath] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -397,6 +401,7 @@ function CampaignHubInner() {
       locations: "location",
       lore: "lore",
       quests: "quest",
+      sessions: "session",
     };
     setCreateNoteCategory(catMap[tab] || "npc");
     setIsCreateNoteOpen(true);
@@ -1224,7 +1229,16 @@ function CampaignHubInner() {
                 </button>
               </div>
             )}
-            <ScratchpadView isScribe={isScribe} currentUser={currentUser} />
+            <ScratchpadView
+              isScribe={isScribe}
+              currentUser={currentUser}
+              onOpenSession={(path) => {
+                setTargetSessionPath(path);
+                setSessionRefreshKey((k) => k + 1);
+                setActiveTab("sessions");
+              }}
+              onOpenReviews={() => setActiveTab("reviews")}
+            />
           </div>
         )}
 
@@ -1259,7 +1273,7 @@ function CampaignHubInner() {
             </div>
             <AudioScribe
               isScribe={isScribe}
-              sessionDate={homeData?.activeSessionDate || "2026-11-04"}
+              sessionDate={homeData?.activeSessionDate || (homeData as any)?.session || new Date().toISOString().slice(0, 10)}
             />
           </div>
         )}
@@ -1301,7 +1315,10 @@ function CampaignHubInner() {
         {activeTab === "sessions" && (
           <SessionNotesView
             isScribe={isScribe}
+            initialSessionPath={targetSessionPath}
+            refreshKey={sessionRefreshKey}
             onOpenScratchpad={() => setActiveTab("scratchpad")}
+            onOpenReviews={() => setActiveTab("reviews")}
             onSelectNote={(path) => setSelectedNotePath(path)}
             onNavigateToWikilink={(target) => {
               const candidate = categoryNotes.find(
@@ -1475,6 +1492,16 @@ function CampaignHubInner() {
             fetchCategory(catMap[activeTab]);
           } else if (activeTab === "party") {
             fetchParty();
+          } else if (activeTab === "sessions" || selectedNotePath?.includes("Session Notes/")) {
+            try {
+              localStorage.removeItem("dnd_codex_cache_session_list");
+              if (selectedNotePath) {
+                localStorage.removeItem(`dnd_codex_cache_session_note_${selectedNotePath}`);
+              }
+            } catch {
+              /* ignore */
+            }
+            setSessionRefreshKey((k) => k + 1);
           }
         }}
       />
@@ -1580,8 +1607,19 @@ function CampaignHubInner() {
         defaultCategory={createNoteCategory}
         isScribe={isScribe}
         onNoteCreated={(newPath) => {
-          setSelectedNotePath(newPath);
-          fetchCategory(createNoteCategory);
+          if (newPath.includes("Session Notes/")) {
+            try {
+              localStorage.removeItem("dnd_codex_cache_session_list");
+            } catch {
+              /* ignore */
+            }
+            setTargetSessionPath(newPath);
+            setSessionRefreshKey((k) => k + 1);
+            setActiveTab("sessions");
+          } else {
+            setSelectedNotePath(newPath);
+            fetchCategory(createNoteCategory);
+          }
         }}
       />
 

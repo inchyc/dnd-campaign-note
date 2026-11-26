@@ -4,6 +4,7 @@ import { walk } from "@/lib/storage";
 import { displayText } from "@/lib/vault";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /** Generate the "Previously on..." recap from the most recent session note. */
 export const POST = handle(async () => {

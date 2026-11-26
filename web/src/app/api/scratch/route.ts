@@ -35,12 +35,12 @@ export const GET = handle(async (req: Request) => {
 export const POST = handle(async (req: Request) => {
   const ctx = await requireCtx();
   const { text, shared } = await req.json();
-  const clean = String(text || "").replace(/\r/g, "").trim().slice(0, 2000);
+  const clean = String(text || "").replace(/\r/g, "").trim().slice(0, 50000);
   if (!clean) throw new HttpError(400, "Note is empty");
   const session = await currentSession(ctx);
   const line = { id: crypto.randomUUID(), time: nowHHMM(), text: clean, shared: !!shared, at: Date.now() };
   await mutateLines(ctx, session, ctx.user.id, (l) => [...l, line]);
-  return Response.json({ success: true, line });
+  return Response.json({ success: true, session, line });
 });
 
 export const PATCH = handle(async (req: Request) => {
@@ -50,7 +50,7 @@ export const PATCH = handle(async (req: Request) => {
   await mutateLines(ctx, session, ctx.user.id, (l) =>
     l.map((x) =>
       x.id === id
-        ? { ...x, ...(typeof shared === "boolean" ? { shared } : {}), ...(typeof text === "string" && text.trim() ? { text: text.trim().slice(0, 2000) } : {}) }
+        ? { ...x, ...(typeof shared === "boolean" ? { shared } : {}), ...(typeof text === "string" && text.trim() ? { text: text.trim().slice(0, 50000) } : {}) }
         : x
     )
   );

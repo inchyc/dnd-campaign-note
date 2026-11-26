@@ -33,7 +33,7 @@ interface LoreMasterResponse {
 export async function runLoreMasterService(
   ctx: Ctx,
   sessionDate: string
-): Promise<{ success: boolean; newCount: number; updateCount: number; summary: string }> {
+): Promise<{ success: boolean; reviewId: string; sessionDate: string; newCount: number; updateCount: number; summary: string }> {
   // 1. Locate session note
   const sessionPath = `Notes/Session Notes/Session Notes ${sessionDate}.md`;
   if (!(await ctx.storage.exists(sessionPath))) {
@@ -41,14 +41,16 @@ export async function runLoreMasterService(
   }
   const sessionText = await ctx.storage.read(sessionPath);
 
-  // 2. Gather known entities from vault index
-  const index = await loadIndex(ctx);
-  const knownEntities = index.map((n) => ({
-    path: n.path,
-    title: n.title,
-    category: n.category,
-    summary: n.summary || "",
-  }));
+  // 2. Gather ALL known entities from vault index (excluding session notes and non-Notes files)
+  const index = await loadIndex(ctx, true);
+  const knownEntities = index
+    .filter((n) => n.path.startsWith("Notes/") && n.category !== "session")
+    .map((n) => ({
+      path: n.path.replace(/^Notes\//, ""),
+      title: n.title,
+      category: n.category,
+      summary: (n.summary || "").slice(0, 140),
+    }));
 
   // 3. Gather templates
   const templates: Record<string, string> = {};
@@ -90,7 +92,7 @@ CRITICAL RULES FOR ENTITY RESOLUTION & ACCURACY:
 4. Output strict, valid JSON matching the schema provided.`;
 
   const prompt = `### KNOWN VAULT ENTITIES (Check to prevent duplicates):
-${JSON.stringify(knownEntities.slice(0, 100), null, 2)}
+${JSON.stringify(knownEntities, null, 2)}
 
 ### VAULT TEMPLATES:
 - NPC Template:
@@ -145,6 +147,8 @@ Return a single JSON object with this exact structure:
   const rawJson = await gemini([{ text: prompt }], {
     system: systemInstruction,
     timeoutMs: 120_000,
+    responseMimeType: "application/json",
+    temperature: 0.1,
   });
 
   // Parse JSON response safely
@@ -160,9 +164,14 @@ Return a single JSON object with this exact structure:
     throw new Error(`Failed to parse AI Lore-Master JSON: ${err.message}`);
   }
 
-  // 5. Stage files into _Review/Session_Notes_${sessionDate}/
+  // 5. Stage files into _Review/Session_Notes_${sessionDate}/ (clearing prior staged files first)
   const reviewId = `Session_Notes_${sessionDate}`;
   const reviewDir = `_Review/${reviewId}`;
+
+  const existingStaged = await walk(ctx.storage, reviewDir);
+  for (const oldFile of existingStaged) {
+    await ctx.storage.delete(oldFile);
+  }
 
   // Write new entities
   for (const item of data.new_entities || []) {
@@ -175,10 +184,11 @@ Return a single JSON object with this exact structure:
   // Write updates
   for (const upd of data.updated_entities || []) {
     const safeName = cleanTitle(upd.filename.replace(/\.md$/, ""));
+    const cleanTarget = String(upd.target_path || upd.filename).replace(/^Notes\//i, "");
     const destPath = `${reviewDir}/Updates/Update_${safeName}.md`;
     const updateContent =
       `---\n` +
-      `target_file: ${upd.target_path || upd.filename}\n` +
+      `target_file: ${cleanTarget}\n` +
       `status_update: ${upd.status_update || ""}\n` +
       `section: ${upd.section_to_update || ""}\n` +
       `---\n\n` +
@@ -201,9 +211,10 @@ Return a single JSON object with this exact structure:
   const updatesList = (data.updated_entities || [])
     .map((u) => {
       const name = cleanTitle(u.filename.replace(/\.md$/, ""));
+      const cleanTarget = String(u.target_path || u.filename).replace(/^Notes\//i, "");
       return (
         `- [ ] **Update for:** [[${name}]] (\`Updates/Update_${name}.md\`)\n` +
-        `  - *Target:* \`${u.target_path || u.filename}\`\n` +
+        `  - *Target:* \`${cleanTarget}\`\n` +
         `  - *Reason:* ${u.rationale}`
       );
     })
@@ -242,6 +253,8 @@ Return a single JSON object with this exact structure:
 
   return {
     success: true,
+    reviewId,
+    sessionDate,
     newCount: (data.new_entities || []).length,
     updateCount: (data.updated_entities || []).length,
     summary: data.session_summary || "",

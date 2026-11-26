@@ -2,7 +2,8 @@ import fs from "fs";
 import path from "path";
 import matter from "gray-matter";
 import { getSupabaseAdmin, isSupabaseConfigured } from "./supabaseClient";
-import { updateIndexedNote } from "./vault";
+import { invalidateIndex, updateIndexedNote } from "./vault";
+import { classifyVaultPath, escapeSqlLike, extractFirstSummary } from "./noteClassification";
 
 /**
  * Storage adapter. Everything in the app reads/writes the vault through this
@@ -412,28 +413,11 @@ export class SupabaseStorage implements Storage {
 
     const parts = clean.split("/");
     const stem = parts[parts.length - 1].replace(/\.md$/i, "");
-    const topFolder = parts[1] || "";
-    let category = "lore";
-    if (topFolder === "NPCs") category = "npc";
-    else if (topFolder === "Locations") category = "location";
-    else if (topFolder === "Lore") category = "lore";
-    else if (topFolder === "Investigations") category = "quest";
-    else if (topFolder === "Inventory & Gear") category = "item";
-    else if (topFolder === "PC Notes") category = "party";
-    else if (topFolder === "Session Notes") category = "session";
-
-    const isSecretPath = parts.includes("Secrets") || stem.startsWith("Secret - ");
-    const secret = isSecretPath || fm.secret === true || fm.dm_only === true;
-
-    let visibility = "party";
-    if (secret) {
-      visibility = "dm";
-    } else if (fm.owner || category === "party") {
-      visibility = fm.visible_to_party ? "party" : "pc";
-    }
+    const { category, subcategory, visibility } = classifyVaultPath(clean, fm);
 
     const title = stem.replace(/^(NPC|Lore|Item|Faction|Secret|Location)\s*-\s*/, "");
     const mtime = Date.now();
+    const summary = fm.summary ? String(fm.summary) : extractFirstSummary(body) || null;
 
     // Extract tasks
     const tasks: Array<{ lineIndex: number; checked: boolean; text: string }> = [];
@@ -454,11 +438,11 @@ export class SupabaseStorage implements Storage {
       path: clean,
       title,
       category,
-      subcategory: parts.length > 3 ? parts[2] : null,
+      subcategory,
       status: (fm.status || "active").toString().toLowerCase(),
       priority: (fm.priority || "medium").toString().toLowerCase(),
       lead: fm.lead || (fm.owner ? String(fm.owner) : null),
-      summary: fm.summary || null,
+      summary,
       visibility,
       character: fm.owner ? String(fm.owner) : (fm.player ? String(fm.player) : null),
       tags: Array.isArray(fm.tags) ? fm.tags.map(String) : [],
@@ -478,9 +462,12 @@ export class SupabaseStorage implements Storage {
       throw new Error(`Failed to write note to Supabase: ${error.message}`);
     }
 
-    // Keep active in-memory cache synchronized as well
+    // Keep active in-memory cache synchronized; invalidate if this was a newly created file
     try {
-      updateIndexedNote(this.campaignId, clean, content);
+      const updated = updateIndexedNote(this.campaignId, clean, content);
+      if (!updated) {
+        invalidateIndex(this.campaignId);
+      }
     } catch {
       // ignore
     }
@@ -517,7 +504,7 @@ export class SupabaseStorage implements Storage {
       .from("notes")
       .select("path")
       .eq("campaign_id", this.campaignId)
-      .ilike("path", `${prefix}%`);
+      .like("path", `${escapeSqlLike(prefix)}%`);
 
     if (error || !data) return [];
 

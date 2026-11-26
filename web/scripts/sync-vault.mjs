@@ -293,7 +293,9 @@ async function syncOnce() {
 
   const remoteMap = new Map();
   for (const n of remoteNotes || []) {
-    remoteMap.set(n.path.replace(/\\/g, "/"), n);
+    const norm = n.path.replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!norm.startsWith("Notes/") || !norm.toLowerCase().endsWith(".md")) continue;
+    remoteMap.set(norm, n);
   }
 
   const notesDir = path.join(vaultRoot, "Notes");
@@ -393,7 +395,8 @@ function startWatcher() {
 
       if (!error && cloudUpdates && cloudUpdates.length > 0) {
         for (const remote of cloudUpdates) {
-          const normRel = remote.path.replace(/\\/g, "/");
+          const normRel = remote.path.replace(/\\/g, "/").replace(/^\/+/, "");
+          if (!normRel.startsWith("Notes/") || !normRel.toLowerCase().endsWith(".md")) continue;
           if (writingPaths.has(normRel)) continue;
 
           const fullPath = path.join(vaultRoot, normRel);

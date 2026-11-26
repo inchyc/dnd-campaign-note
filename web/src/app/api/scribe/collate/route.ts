@@ -4,13 +4,15 @@ import { runLoreMasterService } from "@/lib/loreMasterService";
 import { currentSession, isValidSession, setSession } from "@/lib/scratch";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /** Merge all scratchpads (+ transcript) into the session note, optionally kick off the AI Lore-Master. */
 export const POST = handle(async (req: Request) => {
   const ctx = await requireCtx({ scribe: true });
   const body = await req.json().catch(() => ({}));
   const session = body.session && isValidSession(body.session) ? body.session : await currentSession(ctx);
-  const result = await collateSession(ctx, session);
+  const sourceSession = body.sourceSession && isValidSession(body.sourceSession) ? body.sourceSession : undefined;
+  const result = await collateSession(ctx, session, sourceSession);
 
   let ai = { started: false, error: undefined as string | undefined };
   if (body.runAi) {

@@ -1,6 +1,6 @@
 import { HttpError, handle, requireCtx, loadUsers, verifyPin } from "@/lib/auth";
 import { getCampaign, getStorage } from "@/lib/campaigns";
-import { visibleNotes, NoteMeta } from "@/lib/vault";
+import { visibleNotes, NoteMeta, invalidateIndex } from "@/lib/vault";
 import type { Storage } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
@@ -173,6 +173,9 @@ export const POST = handle(async (req: Request) => {
   }
 
   const savedCount = results.filter((r) => r.status === "saved").length;
+  if (savedCount > 0) {
+    invalidateIndex(auth.campaign.id);
+  }
 
   return Response.json({
     success: true,

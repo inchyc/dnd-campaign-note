@@ -3,6 +3,7 @@ import { GLOSSARY, gemini } from "@/lib/gemini";
 import { currentSession, isValidSession } from "@/lib/scratch";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const EXTS: Record<string, string> = {
   webm: "audio/webm",

@@ -3,6 +3,7 @@ import { runLoreMasterService } from "@/lib/loreMasterService";
 import { currentSession, isValidSession } from "@/lib/scratch";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /** Runs the native TypeScript AI Lore-Master for a session note. */
 export const POST = handle(async (req: Request) => {

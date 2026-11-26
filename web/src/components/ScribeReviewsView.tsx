@@ -127,7 +127,15 @@ export function ScribeReviewsView() {
         toast(data.error || "Failed to apply review", { type: "error" });
         return;
       }
-      toast(`Applied! ${data.appliedNew} files created, ${data.appliedUpdates} files updated.`, { type: "success" });
+      const appliedNew = data.appliedNew ?? data.applied?.length ?? 0;
+      const appliedUpdates = data.appliedUpdates ?? 0;
+      const skippedCount = Array.isArray(data.skipped) ? data.skipped.length : 0;
+      toast(
+        `Applied! ${appliedNew} files created, ${appliedUpdates} files updated.${
+          skippedCount > 0 ? ` (${skippedCount} skipped)` : ""
+        }`,
+        { type: "success" }
+      );
       await fetchReviews();
     } catch (e: any) {
       toast("Error applying review: " + e.message, { type: "error" });
@@ -187,8 +195,10 @@ export function ScribeReviewsView() {
       ) : !error && reviews.length === 0 ? (
         <div className="py-20 text-center text-slate-500 space-y-2 bg-fantasy-900/40 rounded-xl border border-fantasy-700">
           <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-500 opacity-60" />
-          <p className="text-sm font-serif">All session notes have been processed and applied!</p>
-          <p className="text-xs text-slate-600">No pending reviews in _Review/</p>
+          <p className="text-sm font-serif">No staged AI reviews found in _Review/.</p>
+          <p className="text-xs text-slate-600">
+            Run AI Lore-Master from Session Notes or Live Scratchpad to stage entity updates.
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">

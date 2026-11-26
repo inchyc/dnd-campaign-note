@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import { Ctx, loadUsers } from "./auth";
 import { ROOT } from "./config";
-import { readAllLines } from "./scratch";
+import { currentSession, readAllLines } from "./scratch";
 import { withLock } from "./storage";
 import { invalidateIndex } from "./vault";
 
@@ -22,17 +22,30 @@ export async function readTranscript(ctx: Pick<Ctx, "storage">, session: string)
  * "Notes/Session Notes/Session Notes <date>.md", grouped by tag and attributed to each author.
  * Re-running replaces only the collated block, never the Scribe's own text.
  */
-export async function collateSession(ctx: Ctx, session: string) {
+export async function collateSession(ctx: Ctx, session: string, sourceSession?: string) {
   const users = await loadUsers(ctx.storage);
   const label = (id: string) => {
     const u = users.find((x) => x.id === id);
     return u ? `${u.name}/${u.character}` : id;
   };
-  const everyone = await readAllLines(ctx, session);
+  let source = sourceSession || session;
+  let everyone = await readAllLines(ctx, source);
+  const hasAnyLines = (m: Record<string, unknown[]>) => Object.values(m).some((ls) => ls.length > 0);
+  if (!sourceSession && !hasAnyLines(everyone)) {
+    const active = await currentSession(ctx);
+    if (active !== session) {
+      const activeLines = await readAllLines(ctx, active);
+      if (hasAnyLines(activeLines)) {
+        source = active;
+        everyone = activeLines;
+      }
+    }
+  }
   const lines = Object.entries(everyone)
     .flatMap(([uid, ls]) => ls.map((l) => ({ ...l, author: label(uid) })))
     .sort((a, b) => a.at - b.at);
-  const transcript = await readTranscript(ctx, session);
+  const transcript =
+    (await readTranscript(ctx, source)) || (source !== session ? await readTranscript(ctx, session) : "");
 
   const fmt = (l: (typeof lines)[number]) => `- [${l.time}] (${l.author}) ${l.text.replace(/\n+/g, " / ")}`;
   const tag = (re: RegExp) => lines.filter((l) => re.test(l.text));
@@ -76,7 +89,13 @@ export async function collateSession(ctx: Ctx, session: string) {
     await ctx.storage.write(path, text);
   });
   invalidateIndex(ctx.campaign.id);
-  return { path, lines: lines.length, hasTranscript: !!transcript, authors: Object.keys(everyone).length };
+  return {
+    path,
+    lines: lines.length,
+    hasTranscript: !!transcript,
+    authors: Object.keys(everyone).length,
+    sourceSession: source,
+  };
 }
 
 /**

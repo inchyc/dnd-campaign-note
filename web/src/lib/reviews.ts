@@ -1,5 +1,6 @@
 import matter from "gray-matter";
 import type { Ctx } from "./auth";
+import { escapeSqlLike } from "./noteClassification";
 import { cleanTitle, invalidateIndex, loadIndex } from "./vault";
 import { walk, withLock } from "./storage";
 import { getSupabaseAdmin, isSupabaseConfigured } from "./supabaseClient";
@@ -88,7 +89,7 @@ export async function readReviews(ctx: Ctx): Promise<SessionReview[]> {
         .from("notes")
         .select("path, raw_content")
         .eq("campaign_id", ctx.campaign.id)
-        .like("path", `${REVIEW}/%`);
+        .like("path", `${escapeSqlLike(REVIEW)}/%`);
 
       if (!error && data) {
         const groups = new Map<
@@ -101,6 +102,7 @@ export async function readReviews(ctx: Ctx): Promise<SessionReview[]> {
         >();
 
         for (const row of data) {
+          if (!row.path.startsWith(`${REVIEW}/`)) continue;
           const rest = row.path.slice(REVIEW.length + 1); // after "_Review/"
           const slashIdx = rest.indexOf("/");
           if (slashIdx <= 0) continue;
@@ -166,12 +168,17 @@ export async function readReviews(ctx: Ctx): Promise<SessionReview[]> {
   return results.filter((r): r is SessionReview => r !== null).sort((a, b) => b.id.localeCompare(a.id));
 }
 
-export async function applyReview(ctx: Ctx, id: string): Promise<{ applied: string[]; skipped: string[] }> {
+export async function applyReview(
+  ctx: Ctx,
+  id: string
+): Promise<{ applied: string[]; skipped: string[]; appliedNew: number; appliedUpdates: number }> {
   if (!/^[\w.-]+$/.test(id)) throw new Error("Bad review id");
   const dir = `${REVIEW}/${id}`;
   if (!(await ctx.storage.exists(`${dir}/00_SESSION_REVIEW.md`))) throw new Error("Review not found");
   const applied: string[] = [];
   const skipped: string[] = [];
+  let appliedNew = 0;
+  let appliedUpdates = 0;
   const label = id.replace("Session_Notes_", "Session ");
 
   // 1. new notes (never overwrite an existing note)
@@ -184,6 +191,7 @@ export async function applyReview(ctx: Ctx, id: string): Promise<{ applied: stri
     }
     await ctx.storage.write(dest, await ctx.storage.read(f));
     applied.push(`New: ${dest}`);
+    appliedNew++;
   }
 
   // 2. updates appended to existing notes
@@ -191,7 +199,7 @@ export async function applyReview(ctx: Ctx, id: string): Promise<{ applied: stri
   for (const f of await walk(ctx.storage, `${dir}/Updates`)) {
     if (!f.endsWith(".md")) continue;
     const p = matter(await ctx.storage.read(f));
-    const target = String(p.data.target_file || "");
+    const target = String(p.data.target_file || "").replace(/^Notes\//i, "");
     const append = ((p.content.match(/### Content to Append \/ Update:\s*\r?\n([\s\S]+)$/) || [])[1] || "").trim();
     let dest = `Notes/${target}`;
     if (!target || !(await ctx.storage.exists(dest))) {
@@ -216,6 +224,7 @@ export async function applyReview(ctx: Ctx, id: string): Promise<{ applied: stri
       await ctx.storage.write(dest, text);
     });
     applied.push(`Updated: ${dest}`);
+    appliedUpdates++;
   }
 
   // 3. tick resolved items in "Changes to be Made.md"
@@ -236,5 +245,5 @@ export async function applyReview(ctx: Ctx, id: string): Promise<{ applied: stri
   await ctx.storage.write(sp, (await ctx.storage.read(sp)).replace("status: pending_review", "status: applied"));
 
   invalidateIndex(ctx.campaign.id);
-  return { applied, skipped };
+  return { applied, skipped, appliedNew, appliedUpdates };
 }

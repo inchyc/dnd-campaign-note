@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { X, Plus, FileText, Loader2, EyeOff, Shield } from "lucide-react";
 
 interface CreateNoteModalProps {
   isOpen: boolean;
   onClose: () => void;
-  defaultCategory?: string; // "npc" | "location" | "lore" | "quest"
+  defaultCategory?: string; // "npc" | "location" | "lore" | "quest" | "session"
   isScribe: boolean;
   onNoteCreated: (path: string) => void;
 }
@@ -26,6 +26,13 @@ export function CreateNoteModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (isOpen) {
+      setCategory(defaultCategory);
+      setError(null);
+    }
+  }, [defaultCategory, isOpen]);
+
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -33,6 +40,8 @@ export function CreateNoteModal({
     if (!title.trim() || submitting) return;
     setSubmitting(true);
     setError(null);
+
+    const resolvedContent = body.trim() || `# ${title.trim()}\n\nNew record added to the codex.`;
 
     try {
       const res = await fetch("/api/note", {
@@ -44,7 +53,8 @@ export function CreateNoteModal({
           title: title.trim(),
           sub: subfolder.trim() || undefined,
           secret: isScribe ? secret : false,
-          body: body.trim() || `# ${title.trim()}\n\nNew record added to the codex.`,
+          content: resolvedContent,
+          body: resolvedContent,
         }),
       });
 
@@ -54,6 +64,10 @@ export function CreateNoteModal({
         return;
       }
 
+      setTitle("");
+      setSubfolder("");
+      setSecret(false);
+      setBody("");
       onNoteCreated(data.path);
       onClose();
     } catch (err: any) {
@@ -121,6 +135,7 @@ export function CreateNoteModal({
                 <option value="location">Location / Place</option>
                 <option value="lore">Lore / Faction / Relic</option>
                 <option value="quest">Quest / Inquiry</option>
+                {isScribe && <option value="session">Session Note</option>}
               </select>
             </div>
 

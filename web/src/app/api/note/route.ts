@@ -1,5 +1,6 @@
 import matter from "gray-matter";
 import { HttpError, handle, requireCtx } from "@/lib/auth";
+import { buildSessionNoteMarkdown, extractSessionDateFromMarkdown } from "@/lib/noteClassification";
 import { getVisibleNote, mutateNote } from "@/lib/noteops";
 import {
   backlinksFor,
@@ -96,9 +97,55 @@ export const POST = handle(async (req: Request) => {
 
   // Mode 1: Create a brand new note
   if (body.create) {
-    const { category, title, content, priority, location, status, secret, visibleToParty, sub } = body;
+    const { category, title, priority, location, status, secret, visibleToParty, sub, overwrite } = body;
+    const noteText = String(body.content ?? body.body ?? "");
     const cleanTitle = String(title || "").replace(/[/\\?%*:|"<>]/g, "").trim();
-    if (!cleanTitle) throw new HttpError(400, "Title is required");
+    const explicitSessionDate =
+      typeof body.sessionDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.sessionDate)
+        ? body.sessionDate
+        : null;
+
+    if (!cleanTitle && !(category === "session" && explicitSessionDate)) {
+      throw new HttpError(400, "Title is required");
+    }
+
+    if (category === "session") {
+      if (!ctx.isScribe) {
+        throw new HttpError(403, "Only Scribes can create or overwrite session notes");
+      }
+      const detectedDate = explicitSessionDate || extractSessionDateFromMarkdown(noteText, cleanTitle);
+      const today = new Date().toISOString().slice(0, 10);
+      const resolvedDate = detectedDate || today;
+      const targetPath = detectedDate
+        ? `Notes/Session Notes/Session Notes ${detectedDate}.md`
+        : `Notes/Session Notes/${cleanTitle}.md`;
+
+      const exists = await ctx.storage.exists(targetPath);
+      if (exists && !overwrite) {
+        throw new HttpError(409, "A session note for this date already exists.", {
+          exists: true,
+          path: targetPath,
+        });
+      }
+
+      let markdown = buildSessionNoteMarkdown({
+        sessionDate: resolvedDate,
+        campaignName: ctx.campaign.name,
+        rawText: noteText,
+      });
+      if (secret) {
+        markdown = setFrontmatterKey(markdown, "secret", true);
+      }
+
+      await ctx.storage.write(targetPath, markdown);
+      invalidateIndex(ctx.campaign.id);
+      return Response.json({
+        success: true,
+        path: targetPath,
+        sessionDate: resolvedDate,
+        overwritten: exists,
+      });
+    }
 
     let folder = "Notes/Lore";
     if (category === "quest") folder = "Notes/Investigations";
@@ -113,28 +160,35 @@ export const POST = handle(async (req: Request) => {
       throw new HttpError(409, "A note with this title already exists");
     }
 
-    const today = new Date().toISOString().slice(0, 10);
-    const yamlLines = [
-      "---",
-      `type: ${category === "quest" ? "Investigation" : category === "npc" ? "NPC" : category === "location" ? "Location" : "Codex"}`,
-      `category: ${category}`,
-      ...(priority ? [`priority: ${priority}`] : []),
-      ...(status ? [`status: ${status}`] : []),
-      ...(location ? [`location: "[[${location}]]"`] : []),
-      `created: ${today}`,
-      `visible_to_party: ${visibleToParty ?? true}`,
-      `secret: ${secret ?? false}`,
-      `owner: "${ctx.user.character}"`,
-      `player: "${ctx.user.name}"`,
-      "---",
-      "",
-      `# ${cleanTitle}`,
-      "",
-      String(content || "").trim() || `> [!abstract] Overview of ${cleanTitle}\n`,
-      "",
-    ];
+    let markdown: string;
+    const trimmedStart = noteText.trimStart();
+    if (trimmedStart.startsWith("---\n") || trimmedStart.startsWith("---\r\n")) {
+      markdown = noteText.replace(/\r\n/g, "\n").trimEnd() + "\n";
+    } else {
+      const today = new Date().toISOString().slice(0, 10);
+      const bodyContent = noteText.trim() || `> [!abstract] Overview of ${cleanTitle}`;
+      const hasHeading = trimmedStart.startsWith("# ");
+      const yamlLines = [
+        "---",
+        `type: ${category === "quest" ? "Investigation" : category === "npc" ? "NPC" : category === "location" ? "Location" : "Codex"}`,
+        `category: ${category}`,
+        ...(priority ? [`priority: ${priority}`] : []),
+        ...(status ? [`status: ${status}`] : []),
+        ...(location ? [`location: "[[${location}]]"`] : []),
+        `created: ${today}`,
+        `visible_to_party: ${visibleToParty ?? true}`,
+        `secret: ${secret ?? false}`,
+        `owner: "${ctx.user.character}"`,
+        `player: "${ctx.user.name}"`,
+        "---",
+        "",
+        ...(hasHeading ? [] : [`# ${cleanTitle}`, ""]),
+        bodyContent,
+        "",
+      ];
+      markdown = yamlLines.join("\n");
+    }
 
-    const markdown = yamlLines.join("\n");
     await ctx.storage.write(targetPath, markdown);
     invalidateIndex(ctx.campaign.id);
     return Response.json({ success: true, path: targetPath });

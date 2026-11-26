@@ -63,8 +63,9 @@ export const GET = handle(async () => {
     .slice(0, 6)
     .map(toMeta);
 
+  const activeSession = await currentSession(ctx);
   return Response.json(
-    { success: true, recap, quests, roster, recent, session: await currentSession(ctx) },
+    { success: true, recap, quests, roster, recent, session: activeSession, activeSessionDate: activeSession },
     { headers: { "Cache-Control": "no-store" } }
   );
 });

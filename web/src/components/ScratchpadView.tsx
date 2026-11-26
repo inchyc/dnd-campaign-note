@@ -19,6 +19,10 @@ import {
   Copy,
   Check,
   Download,
+  AlertCircle,
+  AlertTriangle,
+  ArrowRight,
+  BookOpen,
 } from "lucide-react";
 import { SessionQuickRef } from "./SessionQuickRef";
 import { WikiLinkTextarea } from "./WikiLinkTextarea";
@@ -33,11 +37,38 @@ interface ScratchLine {
   at: number;
   author?: string;
   authorId?: string;
+  pending?: boolean;
+  session?: string;
 }
 
 interface ScratchpadViewProps {
   isScribe: boolean;
   currentUser: { id: string; name: string; character: string; role: "scribe" | "player" } | null;
+  onOpenSession?: (path: string) => void;
+  onOpenReviews?: () => void;
+}
+
+const DRAFT_KEY = "dnd_scratchpad_draft";
+const PENDING_KEY = "dnd_scratchpad_pending";
+
+function loadPendingLines(): ScratchLine[] {
+  try {
+    if (typeof window === "undefined") return [];
+    const raw = localStorage.getItem(PENDING_KEY);
+    return raw ? (JSON.parse(raw) as ScratchLine[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePendingLines(lines: ScratchLine[]) {
+  try {
+    if (typeof window === "undefined") return;
+    if (lines.length === 0) localStorage.removeItem(PENDING_KEY);
+    else localStorage.setItem(PENDING_KEY, JSON.stringify(lines));
+  } catch {
+    /* ignore */
+  }
 }
 
 function getCharacterStyle(author?: string) {
@@ -52,7 +83,12 @@ function getCharacterStyle(author?: string) {
   return { border: "border-fantasy-700", bg: "bg-fantasy-850", text: "text-amber-300", chip: "bg-fantasy-700 text-slate-300" };
 }
 
-export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
+export function ScratchpadView({
+  isScribe,
+  currentUser,
+  onOpenSession,
+  onOpenReviews,
+}: ScratchpadViewProps) {
   const { toast } = useFeedback();
   const [activeTab, setActiveTab] = useState<"mine" | "table">("mine");
   const [sessionDate, setSessionDate] = useState<string>("");
@@ -63,18 +99,32 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [retryingSync, setRetryingSync] = useState(false);
 
-  // Restore saved tab on mount
+  // Restore saved tab and unsent draft on mount
   useEffect(() => {
     try {
       const savedTab = localStorage.getItem("dnd_scratchpad_tab");
       if (savedTab === "mine" || savedTab === "table") {
         setActiveTab(savedTab);
       }
+      const savedDraft = localStorage.getItem(DRAFT_KEY);
+      if (savedDraft) setNewNoteText(savedDraft);
     } catch {
       // ignore
     }
   }, []);
+
+  const handleDraftChange = (val: string) => {
+    setNewNoteText(val);
+    try {
+      if (val) localStorage.setItem(DRAFT_KEY, val);
+      else localStorage.removeItem(DRAFT_KEY);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const handleTabChange = (tab: "mine" | "table") => {
     setActiveTab(tab);
@@ -94,21 +144,33 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
   };
 
   const handleInsertFromQuickRef = (text: string) => {
-    setNewNoteText((prev) => {
-      if (!prev.trim()) return text + ": ";
-      return prev.trimEnd() + " " + text + " ";
-    });
+    handleDraftChange(
+      !newNoteText.trim() ? text + ": " : newNoteText.trimEnd() + " " + text + " "
+    );
   };
 
-  // Scribe collation state
+  // Scribe collation state (two-step decoupled)
   const [collateDate, setCollateDate] = useState("");
+  const collateDateManualRef = useRef(false);
   const [runAiLoreMaster, setRunAiLoreMaster] = useState(true);
   const [collating, setCollating] = useState(false);
   const [collateResult, setCollateResult] = useState<string | null>(null);
+  const [collateError, setCollateError] = useState<string | null>(null);
+  const [collatedPath, setCollatedPath] = useState<string | null>(null);
+  const [aiRunning, setAiRunning] = useState(false);
+  const [aiResult, setAiResult] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // Scribe session date changer
   const [isEditingSessionDate, setIsEditingSessionDate] = useState(false);
   const [targetSessionDate, setTargetSessionDate] = useState("");
+
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const showStatus = (msg: string) => {
+    setStatusMessage(msg);
+    setTimeout(() => setStatusMessage(null), 3500);
+  };
 
   const handleSetSessionDate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,6 +184,7 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
       const data = await res.json();
       if (res.ok && data.success) {
         setSessionDate(targetSessionDate);
+        collateDateManualRef.current = false;
         setCollateDate(targetSessionDate);
         setIsEditingSessionDate(false);
         showStatus(`Active session updated to ${targetSessionDate}`);
@@ -161,26 +224,49 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
   };
 
   const fetchScratchpad = useCallback(async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
     try {
-      const res = await fetch("/api/scratch");
+      const res = await fetch("/api/scratch", {
+        signal: controller.signal,
+        cache: "no-store",
+      });
       const data = await res.json();
-      if (data.success) {
-        setSessionDate(data.session);
-        setCollateDate((prev) => prev || data.session);
-        // Render newest notes first
-        const sortedMine = (data.mine || []).slice().sort((a: ScratchLine, b: ScratchLine) => b.at - a.at);
-        const sortedShared = (data.shared || []).slice().sort((a: ScratchLine, b: ScratchLine) => b.at - a.at);
-        setMyLines(sortedMine);
-        setTableLines(sortedShared);
-        setCachedData("scratchpad_state", {
-          session: data.session,
-          mine: sortedMine,
-          shared: sortedShared,
-        });
+      if (!res.ok || !data.success) {
+        if (res.status === 401) {
+          setSyncError("Session expired — please sign in again so your notes can sync to the cloud.");
+        }
+        return;
       }
+
+      setSessionDate(data.session);
+      if (!collateDateManualRef.current) {
+        setCollateDate(data.session);
+      }
+
+      const serverMine = (data.mine || []).slice().sort((a: ScratchLine, b: ScratchLine) => b.at - a.at);
+      const serverShared = (data.shared || []).slice().sort((a: ScratchLine, b: ScratchLine) => b.at - a.at);
+
+      // Merge any unsynced local pending lines so polling never erases them
+      const pendingAll = loadPendingLines();
+      const pendingForSession = pendingAll.filter(
+        (p) => (!p.session || p.session === data.session) && !serverMine.some((s: ScratchLine) => s.id === p.id)
+      );
+      const mergedMine = [...pendingForSession, ...serverMine].sort((a, b) => b.at - a.at);
+      const pendingShared = pendingForSession.filter((p) => p.shared);
+      const mergedShared = [...pendingShared, ...serverShared].sort((a, b) => b.at - a.at);
+
+      setMyLines(mergedMine);
+      setTableLines(mergedShared);
+      setCachedData("scratchpad_state", {
+        session: data.session,
+        mine: mergedMine,
+        shared: mergedShared,
+      });
     } catch (e) {
       console.error("Failed to load scratchpad", e);
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   }, []);
@@ -190,23 +276,18 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
     if (cached?.data) {
       if (cached.data.session) {
         setSessionDate(cached.data.session);
-        setCollateDate((prev) => prev || cached.data.session);
+        if (!collateDateManualRef.current) {
+          setCollateDate(cached.data.session);
+        }
       }
       setMyLines(cached.data.mine || []);
       setTableLines(cached.data.shared || []);
       setLoading(false);
     }
     fetchScratchpad();
-    const interval = setInterval(fetchScratchpad, 10000); // 10s auto-refresh
+    const interval = setInterval(fetchScratchpad, 10000);
     return () => clearInterval(interval);
   }, [fetchScratchpad]);
-
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
-
-  const showStatus = (msg: string) => {
-    setStatusMessage(msg);
-    setTimeout(() => setStatusMessage(null), 3500);
-  };
 
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -214,6 +295,7 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
     if (!textToSave || submitting) return;
 
     setSubmitting(true);
+    setSyncError(null);
     const optimisticId = "local-" + Date.now();
     const nowTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const optimisticLine: ScratchLine = {
@@ -224,20 +306,23 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
       at: Date.now(),
       author: currentUser ? `${currentUser.name} (${currentUser.character})` : undefined,
       authorId: currentUser?.id,
+      pending: true,
+      session: sessionDate || undefined,
     };
 
-    // If saving a private note while on Table Feed, auto-switch to "mine" so it's immediately visible
     if (!shareImmediately && activeTab === "table") {
       handleTabChange("mine");
-      showStatus("Note saved privately to My Scratchpad.");
     }
 
-    // Optimistically update UI (prepend so it's immediately visible at the top)
+    // Persist locally as pending immediately so a refresh/poll never loses it
+    const currentPending = loadPendingLines();
+    savePendingLines([optimisticLine, ...currentPending]);
+
     setMyLines((prev) => [optimisticLine, ...prev]);
     if (shareImmediately) {
       setTableLines((prev) => [optimisticLine, ...prev]);
     }
-    setNewNoteText("");
+    handleDraftChange("");
 
     try {
       const res = await fetch("/api/scratch", {
@@ -248,9 +333,9 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
           shared: shareImmediately,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.success && data.line) {
-        // Replace optimistic line with confirmed server line
+        savePendingLines(loadPendingLines().filter((p) => p.id !== optimisticId));
         setMyLines((prev) => prev.map((l) => (l.id === optimisticId ? data.line : l)));
         if (shareImmediately) {
           setTableLines((prev) =>
@@ -265,21 +350,68 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
             )
           );
         }
-        showStatus("Note saved successfully!");
+        showStatus(`Note saved to cloud (${data.session || sessionDate || "active session"})!`);
       } else {
-        showStatus("Note saved in local session memory.");
+        const msg =
+          res.status === 401
+            ? "Your sign-in session expired. Note is preserved locally — sign back in or click Retry Sync."
+            : data.error || `Cloud sync failed (HTTP ${res.status}). Note kept safely in pending queue.`;
+        setSyncError(msg);
+        toast(msg, { type: "error" });
       }
     } catch (e: any) {
+      const msg = "Network offline — note kept safely in local pending queue. Click Retry Sync when reconnected.";
       console.warn("Scratchpad network sync fallback:", e);
-      showStatus("Note kept in local session memory (offline).");
+      setSyncError(msg);
+      toast(msg, { type: "warning" });
     } finally {
       setSubmitting(false);
     }
   };
 
+  const retryPendingSync = async () => {
+    const pending = loadPendingLines();
+    if (pending.length === 0 || retryingSync) return;
+    setRetryingSync(true);
+    setSyncError(null);
+
+    const remaining: ScratchLine[] = [];
+    let syncedCount = 0;
+
+    for (const item of pending) {
+      try {
+        const res = await fetch("/api/scratch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: item.text, shared: item.shared }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          syncedCount++;
+        } else {
+          remaining.push(item);
+          if (res.status === 401) {
+            setSyncError("Session expired — please sign out and sign back in to sync pending notes.");
+          }
+        }
+      } catch {
+        remaining.push(item);
+      }
+    }
+
+    savePendingLines(remaining);
+    if (remaining.length === 0) {
+      setSyncError(null);
+      showStatus(`Synced ${syncedCount} pending note(s) to cloud!`);
+    } else if (!syncError) {
+      setSyncError(`${remaining.length} note(s) still waiting to sync.`);
+    }
+    await fetchScratchpad();
+    setRetryingSync(false);
+  };
+
   const handleToggleShare = async (id: string, currentShared: boolean) => {
     const nextShared = !currentShared;
-    // Optimistic toggle
     setMyLines((prev) => prev.map((l) => (l.id === id ? { ...l, shared: nextShared } : l)));
     try {
       const res = await fetch("/api/scratch", {
@@ -296,8 +428,10 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
   };
 
   const handleDeleteNote = async (id: string) => {
+    savePendingLines(loadPendingLines().filter((p) => p.id !== id));
     setMyLines((prev) => prev.filter((l) => l.id !== id));
     setTableLines((prev) => prev.filter((l) => l.id !== id));
+    if (id.startsWith("local-")) return;
     try {
       const res = await fetch("/api/scratch", {
         method: "DELETE",
@@ -312,42 +446,110 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
     }
   };
 
+  const runAiForDate = async (targetDate: string) => {
+    if (!targetDate || aiRunning) return;
+    setAiRunning(true);
+    setAiError(null);
+    setAiResult(null);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
+    try {
+      const res = await fetch("/api/scribe/lore-master", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: targetDate }),
+        signal: controller.signal,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `AI Lore-Master failed (HTTP ${res.status})`);
+      }
+      setAiResult(
+        `AI Lore-Master staged ${data.newCount ?? 0} new notes and ${data.updateCount ?? 0} updates in _Review.`
+      );
+      try {
+        localStorage.removeItem("dnd_codex_cache_scribe_reviews");
+      } catch {
+        /* ignore */
+      }
+    } catch (e: any) {
+      const msg =
+        e?.name === "AbortError"
+          ? "AI Lore-Master timed out. Your session note is safely saved — click Retry AI Lore-Master."
+          : e?.message || "AI Lore-Master failed.";
+      setAiError(msg);
+      toast(msg, { type: "error" });
+    } finally {
+      clearTimeout(timeoutId);
+      setAiRunning(false);
+    }
+  };
+
   const handleCollateSession = async () => {
-    if (!isScribe || collating) return;
+    if (!isScribe || collating || !collateDate) return;
     setCollating(true);
     setCollateResult(null);
+    setCollateError(null);
+    setCollatedPath(null);
+    setAiResult(null);
+    setAiError(null);
+
     try {
+      // Step 1: Save & confirm session note immediately (decoupled from AI Lore-Master)
       const res = await fetch("/api/scribe/collate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           session: collateDate,
-          runAi: runAiLoreMaster,
+          sourceSession: sessionDate || collateDate,
+          runAi: false,
         }),
       });
-      const data = await res.json();
-      if (data.success) {
-        setCollateResult(
-          `Successfully collated into ${data.path}! ${
-            data.ai?.started ? "AI Lore-Master started in background." : ""
-          }`
-        );
-      } else {
-        toast(data.error || "Collation failed", { type: "error" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const msg = data.error || `Collation failed (HTTP ${res.status})`;
+        setCollateError(msg);
+        toast(msg, { type: "error" });
+        return;
+      }
+
+      try {
+        localStorage.removeItem("dnd_codex_cache_session_list");
+        if (data.path) {
+          localStorage.removeItem(`dnd_codex_cache_session_note_${data.path}`);
+        }
+      } catch {
+        /* ignore */
+      }
+
+      setCollatedPath(data.path);
+      setCollateResult(
+        `Saved ${data.lines ?? 0} note(s) into ${data.path}!`
+      );
+      toast(`Collated session note to ${data.path}`, { type: "success" });
+
+      // Step 2: Run AI Lore-Master independently if checked
+      if (runAiLoreMaster) {
+        await runAiForDate(collateDate);
       }
     } catch (e: any) {
-      toast(e.message || "Collation failed", { type: "error" });
+      const msg = e?.message || "Collation failed";
+      setCollateError(msg);
+      toast(msg, { type: "error" });
     } finally {
       setCollating(false);
     }
   };
+
+  const pendingCount = myLines.filter((l) => l.pending).length;
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-fantasy-700/60 gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-xl font-serif font-bold text-amber-200 flex items-center gap-2">
               <Edit3 className="w-5 h-5 text-amber-400" />
               Live Scratchpad & Table Feed
@@ -408,7 +610,6 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Backup / Export Actions */}
           <div className="flex items-center gap-1 bg-fantasy-900 border border-fantasy-700 rounded-lg p-0.5">
             <button
               type="button"
@@ -463,6 +664,29 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
         </div>
       </div>
 
+      {/* Sync Failure / Pending Queue Warning Banner */}
+      {(syncError || pendingCount > 0) && (
+        <div className="p-3.5 rounded-xl bg-rose-950/60 border border-rose-600/70 text-rose-200 text-xs flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+            <span>
+              {syncError || `${pendingCount} note(s) waiting to sync to cloud.`}
+            </span>
+          </div>
+          {pendingCount > 0 && (
+            <button
+              type="button"
+              onClick={retryPendingSync}
+              disabled={retryingSync}
+              className="px-3 py-1 rounded-lg bg-rose-700 hover:bg-rose-600 text-white font-semibold flex items-center gap-1.5 disabled:opacity-50"
+            >
+              {retryingSync ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              Retry Sync ({pendingCount})
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Session Quick Reference Banner */}
       <SessionQuickRef onInsertText={handleInsertFromQuickRef} />
 
@@ -483,7 +707,7 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
         </p>
       </div>
 
-      {/* Scribe Collation Controls (Chris / Vex only) */}
+      {/* Scribe Collation Controls */}
       {isScribe ? (
         <div className="p-4 rounded-xl bg-amber-950/30 border border-amber-700/60 space-y-3 shadow-md">
           <div className="flex items-center justify-between">
@@ -496,16 +720,19 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
             </span>
           </div>
           <p className="text-xs text-slate-400 leading-relaxed">
-            Players do <strong>not</strong> need to click this. At the end of the session, only the Scribe (or DM) clicks this button to bundle all shared scratchpad notes and audio transcripts into the permanent Obsidian vault session file.
+            Players do <strong>not</strong> need to click this. At the end of the session, only the Scribe (or DM) clicks this button to bundle all scratchpad notes and audio transcripts into the permanent Obsidian vault session file.
           </p>
 
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <div className="flex items-center gap-2">
-              <label className="text-xs text-slate-400">Session Date:</label>
+              <label className="text-xs text-slate-400">Save To Session Date:</label>
               <input
                 type="date"
                 value={collateDate}
-                onChange={(e) => setCollateDate(e.target.value)}
+                onChange={(e) => {
+                  collateDateManualRef.current = true;
+                  setCollateDate(e.target.value);
+                }}
                 className="px-2.5 py-1 text-xs bg-fantasy-900 border border-fantasy-700 rounded text-slate-200 focus:outline-none focus:border-amber-500"
               />
             </div>
@@ -517,24 +744,94 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
                 onChange={(e) => setRunAiLoreMaster(e.target.checked)}
                 className="rounded border-fantasy-700 text-amber-600 focus:ring-0"
               />
-              <span>Run AI Lore-Master to stage vault updates</span>
+              <span>Run AI Lore-Master after saving</span>
             </label>
 
             <button
               type="button"
               onClick={handleCollateSession}
-              disabled={collating || !collateDate}
+              disabled={collating || aiRunning || !collateDate}
               className="px-4 py-1.5 text-xs font-semibold rounded bg-amber-600 hover:bg-amber-500 text-slate-950 flex items-center gap-1.5 disabled:opacity-50 transition shadow"
             >
               {collating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bot className="w-3.5 h-3.5" />}
-              Collate Session Notes
+              {collating ? "Saving Session Note..." : "Collate Session Notes"}
             </button>
           </div>
 
+          {sessionDate && collateDate && collateDate !== sessionDate && myLines.length > 0 && (
+            <div className="p-2.5 rounded bg-amber-950/50 border border-amber-600/60 text-amber-200 text-[11px] flex items-center gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+              <span>
+                Active scratchpad is on <strong>{sessionDate}</strong> — collating will pull your {myLines.length} active note(s) into <strong>Session Notes {collateDate}.md</strong>.
+              </span>
+            </div>
+          )}
+
+          {collateError && (
+            <div className="p-2.5 rounded bg-rose-950/60 border border-rose-700/60 text-rose-200 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+              <span>{collateError}</span>
+            </div>
+          )}
+
           {collateResult && (
-            <div className="p-2.5 rounded bg-emerald-950/50 border border-emerald-700/60 text-emerald-300 text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-              <span>{collateResult}</span>
+            <div className="p-3 rounded-lg bg-emerald-950/50 border border-emerald-700/60 text-emerald-200 text-xs flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                <span>{collateResult}</span>
+              </div>
+              {collatedPath && onOpenSession && (
+                <button
+                  type="button"
+                  onClick={() => onOpenSession(collatedPath)}
+                  className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center gap-1 transition"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  View Session Note
+                </button>
+              )}
+            </div>
+          )}
+
+          {aiRunning && (
+            <div className="p-2.5 rounded bg-amber-950/40 border border-amber-600/50 text-amber-200 text-xs flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-amber-400 flex-shrink-0" />
+              <span>Session note saved! Running AI Lore-Master in the background to stage _Review updates...</span>
+            </div>
+          )}
+
+          {aiResult && (
+            <div className="p-3 rounded-lg bg-emerald-950/50 border border-emerald-700/60 text-emerald-200 text-xs flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Bot className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                <span>{aiResult}</span>
+              </div>
+              {onOpenReviews && (
+                <button
+                  type="button"
+                  onClick={onOpenReviews}
+                  className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1 transition"
+                >
+                  Open AI Reviews
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+
+          {aiError && (
+            <div className="p-3 rounded-lg bg-rose-950/60 border border-rose-700/60 text-rose-200 text-xs flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                <span>{aiError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => runAiForDate(collateDate)}
+                className="px-3 py-1 rounded-lg bg-rose-700 hover:bg-rose-600 text-white font-semibold text-xs"
+              >
+                Retry AI Lore-Master
+              </button>
             </div>
           )}
         </div>
@@ -559,7 +856,7 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
       <form onSubmit={handleAddNote} className="space-y-3 p-4 rounded-xl bg-fantasy-900/60 border border-fantasy-700">
         <WikiLinkTextarea
           value={newNoteText}
-          onChange={setNewNoteText}
+          onChange={handleDraftChange}
           onKeyDown={(e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
               e.preventDefault();
@@ -603,7 +900,6 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
           <Loader2 className="w-6 h-6 animate-spin text-amber-400" />
         </div>
       ) : activeTab === "mine" ? (
-        /* TAB 1: My Scratchpad */
         <div className="space-y-3">
           {myLines.length === 0 ? (
             <div className="py-16 text-center text-slate-500 text-sm">
@@ -614,17 +910,23 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
               <div
                 key={line.id}
                 className={`p-4 rounded-xl border transition flex items-start justify-between gap-4 group ${
-                  line.shared
+                  line.pending
+                    ? "bg-rose-950/20 border-rose-700/60"
+                    : line.shared
                     ? "bg-emerald-950/20 border-emerald-700/40"
                     : "bg-fantasy-850 border-fantasy-700/80"
                 }`}
               >
                 <div className="space-y-1.5 flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[11px] font-mono text-slate-400 flex items-center gap-1">
                       <Clock className="w-3 h-3 text-amber-400" /> {line.time}
                     </span>
-                    {line.shared ? (
+                    {line.pending ? (
+                      <span className="px-1.5 py-0.2 text-[10px] rounded bg-rose-950/60 text-rose-300 border border-rose-700/60 flex items-center gap-1">
+                        <AlertCircle className="w-2.5 h-2.5" /> Unsynced (Local)
+                      </span>
+                    ) : line.shared ? (
                       <span className="px-1.5 py-0.2 text-[10px] rounded bg-emerald-950/60 text-emerald-300 border border-emerald-700/50 flex items-center gap-1">
                         <Eye className="w-2.5 h-2.5" /> Shared to Table
                       </span>
@@ -640,19 +942,21 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
                 </div>
 
                 <div className="flex items-center gap-1.5 flex-shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
-                  <button
-                    type="button"
-                    onClick={() => handleToggleShare(line.id, line.shared)}
-                    className={`px-2 py-1 text-xs rounded border transition flex items-center gap-1 ${
-                      line.shared
-                        ? "bg-fantasy-800 border-fantasy-600 text-slate-300 hover:text-white"
-                        : "bg-emerald-950/50 border-emerald-600 text-emerald-300 hover:bg-emerald-900/50"
-                    }`}
-                    title={line.shared ? "Make private" : "Broadcast to table"}
-                  >
-                    {line.shared ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                    {line.shared ? "Unshare" : "Share"}
-                  </button>
+                  {!line.pending && (
+                    <button
+                      type="button"
+                      onClick={() => handleToggleShare(line.id, line.shared)}
+                      className={`px-2 py-1 text-xs rounded border transition flex items-center gap-1 ${
+                        line.shared
+                          ? "bg-fantasy-800 border-fantasy-600 text-slate-300 hover:text-white"
+                          : "bg-emerald-950/50 border-emerald-600 text-emerald-300 hover:bg-emerald-900/50"
+                      }`}
+                      title={line.shared ? "Make private" : "Broadcast to table"}
+                    >
+                      {line.shared ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                      {line.shared ? "Unshare" : "Share"}
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -668,7 +972,6 @@ export function ScratchpadView({ isScribe, currentUser }: ScratchpadViewProps) {
           )}
         </div>
       ) : (
-        /* TAB 2: Shared Table Feed */
         <div className="space-y-3">
           {tableLines.length === 0 ? (
             <div className="py-16 text-center text-slate-500 text-sm">

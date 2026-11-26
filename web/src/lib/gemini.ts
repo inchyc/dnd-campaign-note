@@ -8,7 +8,10 @@ export interface GeminiPart {
 }
 
 /** Minimal Gemini REST helper with retry and model fallback. Key is read server-side only. */
-export async function gemini(parts: GeminiPart[], opts?: { system?: string; timeoutMs?: number }): Promise<string> {
+export async function gemini(
+  parts: GeminiPart[],
+  opts?: { system?: string; timeoutMs?: number; responseMimeType?: string; temperature?: number }
+): Promise<string> {
   const key = getEnv("GEMINI_API_KEY") || getEnv("GOOGLE_API_KEY");
   if (!key) throw new Error("GEMINI_API_KEY is not set on the server");
   let lastErr = "";
@@ -21,7 +24,10 @@ export async function gemini(parts: GeminiPart[], opts?: { system?: string; time
           body: JSON.stringify({
             contents: [{ parts }],
             ...(opts?.system ? { systemInstruction: { parts: [{ text: opts.system }] } } : {}),
-            generationConfig: { temperature: 0.2 },
+            generationConfig: {
+              temperature: opts?.temperature ?? 0.2,
+              ...(opts?.responseMimeType ? { responseMimeType: opts.responseMimeType } : {}),
+            },
           }),
           signal: AbortSignal.timeout(opts?.timeoutMs ?? 120_000),
         });

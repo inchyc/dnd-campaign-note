@@ -127,9 +127,10 @@ export function invalidateIndex(campaignId: string) {
   metaCache.delete(campaignId);
 }
 
-export function updateIndexedNote(campaignId: string, filePath: string, newRaw: string) {
+export function updateIndexedNote(campaignId: string, filePath: string, newRaw: string): boolean {
   const parsed = matter(newRaw);
   const fm = (parsed.data || {}) as Record<string, any>;
+  let updated = false;
 
   const updateEntry = (n: IndexedNote) => {
     n.raw = newRaw;
@@ -143,7 +144,10 @@ export function updateIndexedNote(campaignId: string, filePath: string, newRaw: 
   const hit = cache.get(campaignId);
   if (hit) {
     const existing = hit.notes.find((n) => n.path === filePath);
-    if (existing) updateEntry(existing);
+    if (existing) {
+      updateEntry(existing);
+      updated = true;
+    }
   }
 
   const metaHit = metaCache.get(campaignId);
@@ -154,6 +158,7 @@ export function updateIndexedNote(campaignId: string, filePath: string, newRaw: 
       if (fm.status !== undefined) existing.status = String(fm.status);
       if (fm.priority !== undefined) existing.priority = String(fm.priority);
       existing.summary = firstSummary(parsed.content);
+      updated = true;
     }
   }
 
@@ -161,6 +166,8 @@ export function updateIndexedNote(campaignId: string, filePath: string, newRaw: 
     const existing = (bundledManifest.notes as IndexedNote[]).find((n) => n.path === filePath);
     if (existing) updateEntry(existing);
   }
+
+  return updated;
 }
 
 function mapSupabaseRow(row: any, includeBody: boolean): IndexedNote {
@@ -207,7 +214,7 @@ export async function loadIndexMeta(ctx: Pick<Ctx, "campaign" | "storage">, forc
 
       if (!error && data && data.length > 0) {
         const notes: IndexedNote[] = data
-          .filter((row) => row.path.toLowerCase().endsWith(".md"))
+          .filter((row) => row.path.startsWith("Notes/") && row.path.toLowerCase().endsWith(".md"))
           .map((row) => mapSupabaseRow(row, false));
         notes.sort((a, b) => a.title.localeCompare(b.title));
         metaCache.set(ctx.campaign.id, { at: Date.now(), notes });
@@ -235,7 +242,7 @@ export async function loadIndex(ctx: Pick<Ctx, "campaign" | "storage">, forceFre
         .eq("campaign_id", ctx.campaign.id);
 
       if (!error && data && data.length > 0) {
-        const mdRows = data.filter((row) => row.path.toLowerCase().endsWith(".md"));
+        const mdRows = data.filter((row) => row.path.startsWith("Notes/") && row.path.toLowerCase().endsWith(".md"));
         const notes: IndexedNote[] = mdRows.map((row) => mapSupabaseRow(row, true));
         notes.sort((a, b) => a.title.localeCompare(b.title));
         cache.set(ctx.campaign.id, { at: Date.now(), notes });
@@ -374,7 +381,6 @@ export function canView(ctx: Ctx, n: NoteMeta, all: NoteMeta[], includeArchived 
   if (n.status === "archived" && !includeArchived) return false;
   const effectiveScribe = ctx.isScribe && !ctx.viewAsPlayer;
   if (effectiveScribe) return true;
-  if (n.category === "session") return false;
   if (n.secret && !n.revealed) return false;
   if (hasPlayerTwin(n, all)) return false;
   if (n.category === "party") return ownsCharacterNote(ctx.user, n) || n.visibleToParty;
