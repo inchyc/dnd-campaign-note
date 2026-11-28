@@ -1,6 +1,7 @@
 import { HttpError, handle, loadUsers, requireCtx } from "@/lib/auth";
 import { withLock } from "@/lib/storage";
 import { setFrontmatterKey } from "@/lib/vault";
+import { calcMulticlassSpellSlots, calcWarlockPactSlots } from "@/data/5e/rulesEngine";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,7 @@ export interface InventoryItemData {
   weight: number;
   equipped?: boolean;
   equippedSlot?: "armor" | "shield" | "mainHand" | "offHand";
+  armorCategory?: "light" | "medium" | "heavy";
   baseAc?: number;
   maxDexMod?: number;
   stealthDisadvantage?: boolean;
@@ -277,17 +279,22 @@ const DEFAULT_SHEET = (
     inventoryItems: [],
     equipped: {},
     spellcastingAbility: prof.spellAbility || "none",
-    spellSlots: {
-      1: { total: level >= 2 && className === "Paladin" ? (level >= 5 ? 4 : level >= 3 ? 3 : 2) : 0, used: 0 },
-      2: { total: level >= 5 && className === "Paladin" ? 2 : 0, used: 0 },
-      3: { total: 0, used: 0 },
-      4: { total: 0, used: 0 },
-      5: { total: 0, used: 0 },
-      6: { total: 0, used: 0 },
-      7: { total: 0, used: 0 },
-      8: { total: 0, used: 0 },
-      9: { total: 0, used: 0 },
-    },
+    spellSlots: (() => {
+      const calculated = calcMulticlassSpellSlots([{ className, level }]);
+      const mapped: Record<number, { total: number; used: number }> = {};
+      for (let i = 1; i <= 9; i++) {
+        mapped[i] = { total: calculated[i] || 0, used: 0 };
+      }
+      return mapped;
+    })(),
+    ...(className === "Warlock"
+      ? {
+          pactSlots: (() => {
+            const pact = calcWarlockPactSlots(level);
+            return { level: pact.slotLevel, total: pact.count, used: 0 };
+          })(),
+        }
+      : {}),
     spells: [],
     featureList: [],
     features: "",

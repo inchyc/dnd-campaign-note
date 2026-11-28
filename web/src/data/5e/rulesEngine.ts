@@ -1,5 +1,5 @@
-import { CLASSES_5E } from "./classes";
-import { ARMOR_5E, WEAPONS_5E } from "./equipment";
+import { CLASSES_5E } from "./classes.ts";
+import { ARMOR_5E, WEAPONS_5E } from "./equipment.ts";
 
 export const STANDARD_ARRAY = [15, 14, 13, 12, 10, 8] as const;
 
@@ -250,36 +250,61 @@ const MULTICLASS_SPELL_SLOTS_TABLE: Record<number, number[]> = {
   20: [4, 3, 3, 3, 3, 2, 2, 1, 1],
 };
 
+function isThirdCasterSubclass(subclass?: string): boolean {
+  if (!subclass) return false;
+  const normalized = subclass.toLowerCase().replace(/[\s_-]+/g, "");
+  return normalized === "eldritchknight" || normalized === "arcanetrickster";
+}
+
 export function calcMulticlassSpellSlots(
   classes: Array<{ className: string; level: number; subclass?: string }>
 ): Record<number, number> {
-  let casterLevel = 0;
-  let pactLevels = 0;
+  const result: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0 };
 
-  for (const entry of classes) {
+  const spellcastingEntries = classes.filter((entry) => {
+    if (!entry || entry.level <= 0 || entry.className === "Warlock") return false;
+    const cls = CLASSES_5E[entry.className];
+    if (!cls) return false;
+    if (cls.spellcastingType === "full" || cls.spellcastingType === "half") return true;
+    return isThirdCasterSubclass(entry.subclass);
+  });
+
+  const isSingleCaster = spellcastingEntries.length === 1;
+  let casterLevel = 0;
+
+  for (const entry of spellcastingEntries) {
     const cls = CLASSES_5E[entry.className];
     if (!cls) continue;
 
-    if (entry.className === "Warlock") {
-      pactLevels += entry.level;
-    } else if (cls.spellcastingType === "full") {
+    if (cls.spellcastingType === "full") {
       casterLevel += entry.level;
+    } else if (entry.className === "Artificer") {
+      // Artificers always round up starting at level 1 (TCoE)
+      casterLevel += Math.ceil(entry.level / 2);
     } else if (cls.spellcastingType === "half") {
-      casterLevel += Math.floor(entry.level / 2);
-    } else if (entry.subclass === "Eldritch Knight" || entry.subclass === "Arcane Trickster") {
-      casterLevel += Math.floor(entry.level / 3);
+      if (isSingleCaster) {
+        casterLevel += entry.level >= 2 ? Math.ceil(entry.level / 2) : 0;
+      } else {
+        casterLevel += Math.floor(entry.level / 2);
+      }
+    } else if (isThirdCasterSubclass(entry.subclass)) {
+      if (isSingleCaster) {
+        casterLevel += entry.level >= 3 ? Math.ceil(entry.level / 3) : 0;
+      } else {
+        casterLevel += Math.floor(entry.level / 3);
+      }
     }
   }
 
-  const slots: Record<number, number> = {};
-  if (casterLevel > 0) {
-    const row = MULTICLASS_SPELL_SLOTS_TABLE[Math.min(20, casterLevel)] || [];
+  const effectiveCaster = Math.min(20, Math.max(0, casterLevel));
+  if (effectiveCaster > 0 && MULTICLASS_SPELL_SLOTS_TABLE[effectiveCaster]) {
+    const row = MULTICLASS_SPELL_SLOTS_TABLE[effectiveCaster] || [];
     row.forEach((count, idx) => {
-      slots[idx + 1] = count;
+      result[idx + 1] = count;
     });
   }
 
-  return slots;
+  return result;
 }
 
 export function calcWarlockPactSlots(level: number): { slotLevel: number; count: number } {
@@ -287,6 +312,119 @@ export function calcWarlockPactSlots(level: number): { slotLevel: number; count:
   const count = level >= 17 ? 4 : level >= 11 ? 3 : level >= 2 ? 2 : 1;
   const slotLevel = Math.min(5, Math.ceil(level / 2));
   return { slotLevel, count };
+}
+
+export function getMaxCastableSpellLevel(
+  classes: Array<{ className: string; level: number; subclass?: string }>
+): number {
+  const slots = calcMulticlassSpellSlots(classes);
+  let maxLvl = 0;
+  for (let i = 1; i <= 9; i++) {
+    if ((slots[i] || 0) > 0) maxLvl = i;
+  }
+  const warlock = classes.find((c) => c.className === "Warlock");
+  if (warlock && warlock.level > 0) {
+    const pact = calcWarlockPactSlots(warlock.level);
+    maxLvl = Math.max(maxLvl, pact.slotLevel);
+    if (warlock.level >= 17) maxLvl = Math.max(maxLvl, 9);
+    else if (warlock.level >= 15) maxLvl = Math.max(maxLvl, 8);
+    else if (warlock.level >= 13) maxLvl = Math.max(maxLvl, 7);
+    else if (warlock.level >= 11) maxLvl = Math.max(maxLvl, 6);
+  }
+  return maxLvl;
+}
+
+export function parseCostToGp(cost: string): number {
+  const normalized = (cost || "").toLowerCase().replace(/,/g, "").trim();
+  const match = normalized.match(/^([\d.]+)\s*(pp|gp|ep|sp|cp)?/);
+  if (!match) return 0;
+  const amount = parseFloat(match[1]);
+  if (Number.isNaN(amount)) return 0;
+  switch (match[2]) {
+    case "pp":
+      return amount * 10;
+    case "ep":
+      return amount * 0.5;
+    case "sp":
+      return amount * 0.1;
+    case "cp":
+      return amount * 0.01;
+    case "gp":
+    default:
+      return amount;
+  }
+}
+
+export function resolveArmorCategory(item: {
+  name: string;
+  armorCategory?: "light" | "medium" | "heavy";
+  baseAc?: number;
+  maxDexMod?: number;
+}): "light" | "medium" | "heavy" {
+  if (item.armorCategory) return item.armorCategory;
+  const lower = (item.name || "").toLowerCase().trim();
+  const catalogMatch = ARMOR_5E.find(
+    (a) => a.category !== "shield" && a.name.toLowerCase() === lower
+  );
+  if (catalogMatch && catalogMatch.category !== "shield") {
+    return catalogMatch.category;
+  }
+  if (item.maxDexMod === 2) return "medium";
+  if (
+    lower.includes("ring") ||
+    lower.includes("chain mail") ||
+    lower.includes("splint") ||
+    (lower.includes("plate") && !lower.includes("half") && !lower.includes("breast"))
+  ) {
+    return "heavy";
+  }
+  if (
+    lower.includes("hide") ||
+    lower.includes("chain shirt") ||
+    lower.includes("scale") ||
+    lower.includes("breastplate") ||
+    lower.includes("half plate")
+  ) {
+    return "medium";
+  }
+  if (typeof item.baseAc === "number" && item.baseAc >= 16) return "heavy";
+  return "light";
+}
+
+export function calcWeaponAttackMod(
+  item: { name: string; properties?: string[]; range?: string },
+  stats: { str: number; dex: number }
+): number {
+  const strMod = calcModifier(stats.str);
+  const dexMod = calcModifier(stats.dex);
+  const props = (item.properties || []).map((p) => p.toLowerCase());
+  const lower = (item.name || "").toLowerCase().trim();
+  const catalogMatch = WEAPONS_5E.find((w) => w.name.toLowerCase() === lower);
+
+  if (catalogMatch) {
+    if (catalogMatch.rangeType === "ranged") {
+      return catalogMatch.properties.includes("finesse")
+        ? Math.max(strMod, dexMod)
+        : dexMod;
+    }
+    if (catalogMatch.properties.includes("finesse")) {
+      return Math.max(strMod, dexMod);
+    }
+    return strMod;
+  }
+
+  const isRanged =
+    (props.includes("ammunition") && !props.includes("thrown")) ||
+    lower.includes("bow") ||
+    lower.includes("sling") ||
+    lower.includes("blowgun");
+  if (isRanged) {
+    return props.includes("finesse") ? Math.max(strMod, dexMod) : dexMod;
+  }
+  if (props.includes("finesse")) {
+    return Math.max(strMod, dexMod);
+  }
+  return strMod;
 }
 
 export interface ArmorCalculationResult {

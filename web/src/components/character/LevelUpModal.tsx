@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   X,
   Sparkles,
@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   Check,
   Plus,
+  Search,
 } from "lucide-react";
 import { CLASSES_5E, SubclassDefinition } from "@/data/5e/classes";
 import { FEATS_5E, Feat5e } from "@/data/5e/feats";
@@ -59,6 +60,27 @@ export function LevelUpModal({ sheet, onClose, onSave }: LevelUpModalProps) {
   const [chosenSubclass, setChosenSubclass] = useState<string>(
     existingEntry?.subclass || (classDef.subclasses[0]?.name || "")
   );
+  const [subclassSearch, setSubclassSearch] = useState("");
+  const [isCustomSubclass, setIsCustomSubclass] = useState(false);
+  const [customSubclassName, setCustomSubclassName] = useState("");
+
+  useEffect(() => {
+    setChosenSubclass(existingEntry?.subclass || classDef.subclasses[0]?.name || "");
+    setIsCustomSubclass(false);
+    setCustomSubclassName("");
+    setSubclassSearch("");
+  }, [selectedClassToLevel, existingEntry, classDef]);
+
+  const filteredSubclasses = useMemo(() => {
+    const q = subclassSearch.toLowerCase();
+    return classDef.subclasses.filter(
+      (sc) =>
+        !q ||
+        sc.name.toLowerCase().includes(q) ||
+        (sc.source || "").toLowerCase().includes(q) ||
+        sc.description.toLowerCase().includes(q)
+    );
+  }, [classDef, subclassSearch]);
 
   // ASI or Feat selection
   const isAsiLevel = classDef.asiLevels.includes(nextClassLevel);
@@ -72,6 +94,19 @@ export function LevelUpModal({ sheet, onClose, onSave }: LevelUpModalProps) {
     cha: 0,
   });
   const [selectedFeatId, setSelectedFeatId] = useState<string>(FEATS_5E[0].id);
+  const selectedFeatObj = useMemo(
+    () => FEATS_5E.find((f) => f.id === selectedFeatId),
+    [selectedFeatId]
+  );
+  const [featStatChoice, setFeatStatChoice] = useState<StatKey>("str");
+
+  useEffect(() => {
+    if (selectedFeatObj?.allowsStatChoice && selectedFeatObj.statChoices?.length) {
+      if (!selectedFeatObj.statChoices.includes(featStatChoice)) {
+        setFeatStatChoice(selectedFeatObj.statChoices[0]);
+      }
+    }
+  }, [selectedFeatObj, featStatChoice]);
 
   // HP Gain Mode
   const hitDieNum = parseInt(classDef.hitDie.replace("d", ""), 10) || 10;
@@ -107,10 +142,20 @@ export function LevelUpModal({ sheet, onClose, onSave }: LevelUpModalProps) {
     setStatBoosts((prev) => ({ ...prev, [stat]: next }));
   };
 
-  // Features unlocked at this level
+  // Active subclass name
+  const effectiveSubclass = isCustomSubclass
+    ? customSubclassName.trim() || "Custom Subclass"
+    : existingEntry?.subclass || chosenSubclass;
+
+  // Features unlocked at this level (base class + subclass)
   const unlockedFeatures = useMemo(() => {
-    return classDef.features.filter((f) => f.level === nextClassLevel);
-  }, [classDef, nextClassLevel]);
+    const base = classDef.features.filter((f) => f.level === nextClassLevel);
+    const subDef = classDef.subclasses.find((s) => s.name === effectiveSubclass);
+    const subFeats = subDef
+      ? subDef.features.filter((f) => f.level === nextClassLevel)
+      : [];
+    return [...base, ...subFeats];
+  }, [classDef, nextClassLevel, effectiveSubclass]);
 
   // Submit Level Up
   const handleConfirmLevelUp = async () => {
@@ -128,11 +173,14 @@ export function LevelUpModal({ sheet, onClose, onSave }: LevelUpModalProps) {
       const matchIdx = updatedClasses.findIndex((c) => c.className === selectedClassToLevel);
 
       let companionToAdd: CompanionData | null = null;
+      const finalChosenSub = isCustomSubclass
+        ? customSubclassName.trim() || "Custom Subclass"
+        : chosenSubclass;
 
       if (matchIdx >= 0) {
         const entry = updatedClasses[matchIdx];
         const newLevel = entry.level + 1;
-        const sub = needsSubclass ? chosenSubclass : entry.subclass;
+        const sub = needsSubclass ? finalChosenSub : entry.subclass;
         updatedClasses[matchIdx] = {
           ...entry,
           level: newLevel,
@@ -166,31 +214,52 @@ export function LevelUpModal({ sheet, onClose, onSave }: LevelUpModalProps) {
           className: selectedClassToLevel,
           level: 1,
           hitDie: classDef.hitDie,
-          subclass: classDef.subclassLevel === 1 ? chosenSubclass : undefined,
+          subclass: classDef.subclassLevel === 1 ? finalChosenSub : undefined,
         });
       }
 
-      // 2. Ability Scores
+      // 2. Ability Scores & Feat bonuses
       const newStats = { ...sheet.stats };
+      let extraHpBonus = 0;
+      let extraSpeed = 0;
+      let extraInit = 0;
+      const newSavingThrows = { ...(sheet.savingThrows || {}) };
+
       if (isAsiLevel) {
         if (asiType === "stats") {
           for (const [st, val] of Object.entries(statBoosts)) {
             newStats[st as StatKey] += val;
           }
-        } else {
-          // Feat
-          const feat = FEATS_5E.find((f) => f.id === selectedFeatId);
-          if (feat?.statBoost) {
-            for (const [st, val] of Object.entries(feat.statBoost)) {
+        } else if (selectedFeatObj) {
+          if (selectedFeatObj.allowsStatChoice) {
+            newStats[featStatChoice] += 1;
+          } else if (selectedFeatObj.statBoost) {
+            for (const [st, val] of Object.entries(selectedFeatObj.statBoost)) {
               newStats[st as StatKey] += val || 0;
             }
+          }
+          if (selectedFeatObj.id === "tough") {
+            extraHpBonus += newTotalLevel * 2;
+          }
+          if (selectedFeatObj.id === "resilient") {
+            newSavingThrows[featStatChoice] = true;
+          }
+          if (selectedFeatObj.id === "alert") {
+            extraInit += 5;
+          }
+          if (selectedFeatObj.id === "mobile") {
+            extraSpeed += 10;
           }
         }
       }
 
-      // 3. HP Max
-      const newHpMax = sheet.hpMax + hpGain;
-      const newHpCurrent = Math.min(newHpMax, sheet.hpCurrent + hpGain);
+      // 3. HP Max (also recalculate CON change if CON modifier increased)
+      const oldConMod = calcModifier(sheet.stats.con);
+      const newConMod = calcModifier(newStats.con);
+      const conDiffHp = Math.max(0, newConMod - oldConMod) * currentTotalLevel;
+      const totalHpGain = Math.max(1, (hpMode === "average" ? defaultAverageHp : rolledHp) + newConMod) + conDiffHp + extraHpBonus;
+      const newHpMax = sheet.hpMax + totalHpGain;
+      const newHpCurrent = Math.min(newHpMax, sheet.hpCurrent + totalHpGain);
 
       // 4. Hit Dice
       const hitDiceSummary = updatedClasses.map((c) => `${c.level}${c.hitDie}`).join(" + ");
@@ -228,17 +297,14 @@ export function LevelUpModal({ sheet, onClose, onSave }: LevelUpModalProps) {
         });
       });
 
-      if (isAsiLevel && asiType === "feat") {
-        const feat = FEATS_5E.find((f) => f.id === selectedFeatId);
-        if (feat) {
-          newFeatures.push({
-            id: `feat-asi-${newTotalLevel}`,
-            name: `Feat: ${feat.name}`,
-            source: `${selectedClassToLevel} ${nextClassLevel} (ASI)`,
-            level: newTotalLevel,
-            description: feat.description,
-          });
-        }
+      if (isAsiLevel && asiType === "feat" && selectedFeatObj) {
+        newFeatures.push({
+          id: `feat-asi-${newTotalLevel}`,
+          name: `Feat: ${selectedFeatObj.name}`,
+          source: `${selectedClassToLevel} ${nextClassLevel} (ASI)`,
+          level: newTotalLevel,
+          description: selectedFeatObj.description,
+        });
       }
 
       // 7. Companions list
@@ -249,13 +315,19 @@ export function LevelUpModal({ sheet, onClose, onSave }: LevelUpModalProps) {
 
       // 8. Class summary string
       const classString = updatedClasses.map((c) => `${c.className} ${c.level}`).join(" / ");
+      const updatedPrimarySub =
+        matchIdx === 0 && needsSubclass ? finalChosenSub : sheet.subclass;
 
       const updatedSheet: CharacterSheetData = {
         ...sheet,
         level: newTotalLevel,
         class: classString,
+        subclass: updatedPrimarySub,
         classes: updatedClasses,
         stats: newStats,
+        savingThrows: newSavingThrows,
+        speed: (sheet.speed || 30) + extraSpeed,
+        initiativeBonus: (sheet.initiativeBonus ?? calcModifier(sheet.stats.dex)) + extraInit + (calcModifier(newStats.dex) - calcModifier(sheet.stats.dex)),
         hpMax: newHpMax,
         hpCurrent: newHpCurrent,
         hitDiceTotal: hitDiceSummary,
@@ -419,39 +491,72 @@ export function LevelUpModal({ sheet, onClose, onSave }: LevelUpModalProps) {
           {/* Subclass Selection if unlocked at this level */}
           {needsSubclass && (
             <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/50 space-y-3">
-              <div className="flex items-center gap-2 text-xs font-semibold text-amber-400 uppercase tracking-wider">
-                <Sparkles className="w-4 h-4" />
-                <span>Specialization: Choose your Subclass ({selectedClassToLevel})</span>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-amber-400 uppercase tracking-wider">
+                  <Sparkles className="w-4 h-4" />
+                  <span>Specialization: Choose your Subclass ({selectedClassToLevel})</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsCustomSubclass(!isCustomSubclass)}
+                  className="text-xs text-amber-300 hover:underline"
+                >
+                  {isCustomSubclass ? "Browse Official Subclasses" : "+ Custom Subclass"}
+                </button>
               </div>
-              <p className="text-xs text-stone-300">
-                You have reached Level {nextClassLevel} in {selectedClassToLevel}! Select your specialized archetype:
-              </p>
-              <div className="space-y-2">
-                {classDef.subclasses.map((sc) => (
-                  <button
-                    key={sc.id}
-                    type="button"
-                    onClick={() => setChosenSubclass(sc.name)}
-                    className={`w-full p-3 rounded-xl border text-left transition-all ${
-                      chosenSubclass === sc.name
-                        ? "bg-amber-600/30 border-amber-500"
-                        : "bg-stone-900/60 border-stone-800 hover:bg-stone-800"
-                    }`}
-                  >
-                    <div className="font-serif font-bold text-sm text-amber-200">
-                      {sc.name}
-                      {sc.hasCompanion && (
-                        <span className="ml-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-900/50 text-emerald-300">
-                          Includes Companion
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-stone-400 mt-1">
-                      {sc.description}
-                    </div>
-                  </button>
-                ))}
-              </div>
+              {isCustomSubclass ? (
+                <input
+                  type="text"
+                  value={customSubclassName}
+                  onChange={(e) => setCustomSubclassName(e.target.value)}
+                  placeholder="Enter custom subclass name..."
+                  className="w-full bg-stone-950 border border-amber-500/50 rounded-xl p-2.5 text-sm text-stone-100"
+                />
+              ) : (
+                <>
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      value={subclassSearch}
+                      onChange={(e) => setSubclassSearch(e.target.value)}
+                      placeholder={`Search ${classDef.subclasses.length} subclasses by name or source (PHB, XGtE, TCoE)...`}
+                      className="w-full pl-9 pr-3 py-1.5 bg-stone-950 border border-stone-800 rounded-xl text-xs text-stone-200 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {filteredSubclasses.map((sc) => (
+                      <button
+                        key={sc.id}
+                        type="button"
+                        onClick={() => setChosenSubclass(sc.name)}
+                        className={`w-full p-3 rounded-xl border text-left transition-all ${
+                          chosenSubclass === sc.name
+                            ? "bg-amber-600/30 border-amber-500"
+                            : "bg-stone-900/60 border-stone-800 hover:bg-stone-800"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-serif font-bold text-sm text-amber-200">{sc.name}</span>
+                          {sc.source && (
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-stone-800 text-stone-300">
+                              {sc.source}
+                            </span>
+                          )}
+                          {sc.hasCompanion && (
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-900/50 text-emerald-300">
+                              Includes Companion
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-stone-300 mt-1 leading-relaxed">
+                          {sc.description}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -526,7 +631,7 @@ export function LevelUpModal({ sheet, onClose, onSave }: LevelUpModalProps) {
                   </div>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <select
                     value={selectedFeatId}
                     onChange={(e) => setSelectedFeatId(e.target.value)}
@@ -538,8 +643,31 @@ export function LevelUpModal({ sheet, onClose, onSave }: LevelUpModalProps) {
                       </option>
                     ))}
                   </select>
+                  {selectedFeatObj?.allowsStatChoice && selectedFeatObj.statChoices && (
+                    <div className="p-2.5 rounded-lg bg-amber-950/30 border border-amber-500/40 space-y-1.5 text-xs">
+                      <div className="font-semibold text-amber-300">
+                        Choose +1 Ability Score from this Feat:
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedFeatObj.statChoices.map((st) => (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() => setFeatStatChoice(st)}
+                            className={`px-2.5 py-1 rounded uppercase font-bold transition ${
+                              featStatChoice === st
+                                ? "bg-amber-600 text-stone-950"
+                                : "bg-stone-900 border border-stone-700 text-stone-300"
+                            }`}
+                          >
+                            +1 {st}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <p className="text-xs text-stone-300 leading-relaxed bg-stone-900/60 p-2.5 rounded-lg border border-stone-800">
-                    {FEATS_5E.find((f) => f.id === selectedFeatId)?.description}
+                    {selectedFeatObj?.description}
                   </p>
                 </div>
               )}

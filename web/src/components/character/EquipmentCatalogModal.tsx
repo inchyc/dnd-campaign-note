@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { X, Search, Shield, Swords, Package, Plus, Sparkles, Check } from "lucide-react";
-import { WEAPONS_5E, ARMOR_5E, GEAR_5E, WeaponItem, ArmorItem, GearItem } from "@/data/5e/equipment";
+import { X, Search, Shield, Swords, Package, Plus, Sparkles, Check, Wrench, Backpack } from "lucide-react";
+import { WEAPONS_5E, ARMOR_5E, GEAR_5E, PACKS_5E, TOOLS_5E, WeaponItem, ArmorItem, GearItem, PackItem, ToolItem } from "@/data/5e/equipment";
 import type { InventoryItemData } from "@/app/api/character/sheet/route";
 
 interface EquipmentCatalogModalProps {
@@ -11,13 +11,14 @@ interface EquipmentCatalogModalProps {
 }
 
 export function EquipmentCatalogModal({ onClose, onAddItem }: EquipmentCatalogModalProps) {
-  const [tab, setTab] = useState<"weapons" | "armor" | "gear" | "custom">("weapons");
+  const [tab, setTab] = useState<"weapons" | "armor" | "gear" | "packs" | "tools" | "custom">("weapons");
   const [search, setSearch] = useState("");
   const [addedItemIds, setAddedItemIds] = useState<Record<string, boolean>>({});
 
   // Custom Item state
   const [customName, setCustomName] = useState("");
   const [customCategory, setCustomCategory] = useState<"weapon" | "armor" | "shield" | "gear" | "magic">("weapon");
+  const [customArmorCategory, setCustomArmorCategory] = useState<"light" | "medium" | "heavy">("medium");
   const [customDamage, setCustomDamage] = useState("1d8");
   const [customAc, setCustomAc] = useState(12);
   const [customWeight, setCustomWeight] = useState(1);
@@ -41,6 +42,21 @@ export function EquipmentCatalogModal({ onClose, onAddItem }: EquipmentCatalogMo
     return GEAR_5E.filter((g) =>
       g.name.toLowerCase().includes(search.toLowerCase()) ||
       g.description.toLowerCase().includes(search.toLowerCase())
+    );
+  }, [search]);
+
+  const filteredPacks = useMemo(() => {
+    return PACKS_5E.filter((p) =>
+      p.name.toLowerCase().includes(search.toLowerCase()) ||
+      p.description.toLowerCase().includes(search.toLowerCase())
+    );
+  }, [search]);
+
+  const filteredTools = useMemo(() => {
+    return TOOLS_5E.filter((t) =>
+      t.name.toLowerCase().includes(search.toLowerCase()) ||
+      t.category.toLowerCase().includes(search.toLowerCase()) ||
+      t.description.toLowerCase().includes(search.toLowerCase())
     );
   }, [search]);
 
@@ -70,6 +86,7 @@ export function EquipmentCatalogModal({ onClose, onAddItem }: EquipmentCatalogMo
       id: `arm-${Date.now()}-${a.id}`,
       name: a.name,
       category: a.category === "shield" ? "shield" : "armor",
+      armorCategory: a.category === "shield" ? undefined : a.category,
       quantity: 1,
       weight: a.weight,
       baseAc: a.baseAc,
@@ -94,12 +111,44 @@ export function EquipmentCatalogModal({ onClose, onAddItem }: EquipmentCatalogMo
       magicBonusAc: g.magicBonusAc,
       magicBonusAttack: g.magicBonusAttack,
       magicBonusDamage: g.magicBonusDamage,
-      description: g.description,
+      description: `${g.description} (${g.cost})`,
     };
     onAddItem(item);
     setAddedItemIds((prev) => ({ ...prev, [g.id]: true }));
     setTimeout(() => {
       setAddedItemIds((prev) => ({ ...prev, [g.id]: false }));
+    }, 1500);
+  };
+
+  const handleAddPack = (p: PackItem) => {
+    const item: InventoryItemData = {
+      id: `pack-${Date.now()}-${p.id}`,
+      name: p.name,
+      category: "gear",
+      quantity: 1,
+      weight: p.weight,
+      description: `Cost: ${p.cost} • Contents: ${p.description}`,
+    };
+    onAddItem(item);
+    setAddedItemIds((prev) => ({ ...prev, [p.id]: true }));
+    setTimeout(() => {
+      setAddedItemIds((prev) => ({ ...prev, [p.id]: false }));
+    }, 1500);
+  };
+
+  const handleAddTool = (t: ToolItem) => {
+    const item: InventoryItemData = {
+      id: `tool-${Date.now()}-${t.id}`,
+      name: t.name,
+      category: "tool",
+      quantity: 1,
+      weight: t.weight,
+      description: `Cost: ${t.cost} • ${t.description}`,
+    };
+    onAddItem(item);
+    setAddedItemIds((prev) => ({ ...prev, [t.id]: true }));
+    setTimeout(() => {
+      setAddedItemIds((prev) => ({ ...prev, [t.id]: false }));
     }, 1500);
   };
 
@@ -109,10 +158,12 @@ export function EquipmentCatalogModal({ onClose, onAddItem }: EquipmentCatalogMo
       id: `custom-${Date.now()}`,
       name: customName.trim(),
       category: customCategory,
+      armorCategory: customCategory === "armor" ? customArmorCategory : undefined,
       quantity: 1,
       weight: customWeight,
       damage: customCategory === "weapon" ? customDamage : undefined,
       baseAc: customCategory === "armor" || customCategory === "shield" ? customAc : undefined,
+      maxDexMod: customCategory === "armor" && customArmorCategory === "medium" ? 2 : undefined,
       description: customDesc.trim(),
     };
     onAddItem(item);
@@ -176,7 +227,31 @@ export function EquipmentCatalogModal({ onClose, onAddItem }: EquipmentCatalogMo
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                Gear & Magic Items
+                Gear & Magic
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("packs")}
+                className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition ${
+                  tab === "packs"
+                    ? "bg-amber-600 text-stone-950 font-bold"
+                    : "text-stone-400 hover:text-stone-200"
+                }`}
+              >
+                <Backpack className="w-3.5 h-3.5" />
+                Packs (8)
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("tools")}
+                className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition ${
+                  tab === "tools"
+                    ? "bg-amber-600 text-stone-950 font-bold"
+                    : "text-stone-400 hover:text-stone-200"
+                }`}
+              >
+                <Wrench className="w-3.5 h-3.5" />
+                Tools & Instruments
               </button>
               <button
                 type="button"
@@ -345,6 +420,94 @@ export function EquipmentCatalogModal({ onClose, onAddItem }: EquipmentCatalogMo
             </div>
           )}
 
+          {tab === "packs" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {filteredPacks.map((p) => (
+                <div
+                  key={p.id}
+                  className="p-3 rounded-xl bg-stone-950 border border-stone-800 flex items-start justify-between gap-3 hover:border-stone-700"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-serif font-bold text-sm text-stone-100">
+                        {p.name}
+                      </span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                        {p.cost} • {p.weight} lbs
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-stone-400 mt-1 leading-relaxed">
+                      {p.description}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleAddPack(p)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 shrink-0 ${
+                      addedItemIds[p.id]
+                        ? "bg-emerald-600 text-white"
+                        : "bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-stone-950 border border-amber-600/40"
+                    }`}
+                  >
+                    {addedItemIds[p.id] ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" /> Added
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </>
+                    )}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {tab === "tools" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {filteredTools.map((t) => (
+                <div
+                  key={t.id}
+                  className="p-3 rounded-xl bg-stone-950 border border-stone-800 flex items-start justify-between gap-3 hover:border-stone-700"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-serif font-bold text-sm text-stone-100">
+                        {t.name}
+                      </span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-stone-800 text-stone-300 uppercase">
+                        {t.category} • {t.cost}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-stone-400 mt-1 leading-relaxed">
+                      {t.description}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleAddTool(t)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 shrink-0 ${
+                      addedItemIds[t.id]
+                        ? "bg-emerald-600 text-white"
+                        : "bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-stone-950 border border-amber-600/40"
+                    }`}
+                  >
+                    {addedItemIds[t.id] ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" /> Added
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </>
+                    )}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           {tab === "custom" && (
             <div className="p-4 rounded-xl bg-stone-950 border border-stone-800 space-y-4 max-w-lg mx-auto">
               <h3 className="font-serif font-bold text-sm text-amber-200">
@@ -388,14 +551,30 @@ export function EquipmentCatalogModal({ onClose, onAddItem }: EquipmentCatalogMo
                       />
                     </div>
                   ) : (
-                    <div>
-                      <label className="block text-stone-400 mb-1">Base AC</label>
-                      <input
-                        type="number"
-                        value={customAc}
-                        onChange={(e) => setCustomAc(parseInt(e.target.value, 10) || 10)}
-                        className="w-full bg-stone-900 border border-stone-700 rounded-lg p-2 text-stone-100"
-                      />
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="block text-stone-400 mb-1">Base AC</label>
+                        <input
+                          type="number"
+                          value={customAc}
+                          onChange={(e) => setCustomAc(parseInt(e.target.value, 10) || 10)}
+                          className="w-full bg-stone-900 border border-stone-700 rounded-lg p-2 text-stone-100"
+                        />
+                      </div>
+                      {customCategory === "armor" && (
+                        <div className="flex-1">
+                          <label className="block text-stone-400 mb-1">Armor Class</label>
+                          <select
+                            value={customArmorCategory}
+                            onChange={(e) => setCustomArmorCategory(e.target.value as any)}
+                            className="w-full bg-stone-900 border border-stone-700 rounded-lg p-2 text-stone-100"
+                          >
+                            <option value="light">Light (+DEX)</option>
+                            <option value="medium">Medium (+DEX max 2)</option>
+                            <option value="heavy">Heavy (Flat AC)</option>
+                          </select>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

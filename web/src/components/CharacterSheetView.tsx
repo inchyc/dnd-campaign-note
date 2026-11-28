@@ -50,7 +50,15 @@ import {
   formatModifier,
   calcProficiencyBonus,
   calculateArmorClass,
+  calcMulticlassSpellSlots,
+  calcWarlockPactSlots,
+  resolveArmorCategory,
+  calcWeaponAttackMod,
 } from "@/data/5e/rulesEngine";
+import { CLASSES_5E } from "@/data/5e/classes";
+import { SPELLS_5E } from "@/data/5e/spells";
+import { WEAPONS_5E, ARMOR_5E, GEAR_5E, PACKS_5E, TOOLS_5E } from "@/data/5e/equipment";
+import { FEATS_5E } from "@/data/5e/feats";
 
 interface CharacterSheetViewProps {
   currentUser: {
@@ -119,9 +127,23 @@ export function CharacterSheetView({
   const { rollDice } = useTableTools();
   const [lastRoll, setLastRoll] = useState<{ formula: string; label: string; result: number } | null>(null);
 
-  // 5e.tools lookup state
+  // 5e.tools lookup & sheet UI controls state
   const [lookupQuery, setLookupQuery] = useState("");
-  const [lookupCategory, setLookupCategory] = useState<"spells" | "items" | "bestiary" | "feats">("spells");
+  const [lookupCategory, setLookupCategory] = useState<"spells" | "items" | "bestiary" | "feats" | "classes">("spells");
+  const [showAllSpellSlots, setShowAllSpellSlots] = useState(false);
+  const [castSlotChoiceBySpell, setCastSlotChoiceBySpell] = useState<Record<string, string>>({});
+  const [profInputByCategory, setProfInputByCategory] = useState<{
+    languages: string;
+    armor: string;
+    weapons: string;
+    tools: string;
+  }>({ languages: "", armor: "", weapons: "", tools: "" });
+  const [featureSearch, setFeatureSearch] = useState("");
+  const [featureSourceFilter, setFeatureSourceFilter] = useState<"all" | "class" | "feat" | "race" | "custom">("all");
+  const [showAddFeatureForm, setShowAddFeatureForm] = useState(false);
+  const [newFeatureName, setNewFeatureName] = useState("");
+  const [newFeatureSource, setNewFeatureSource] = useState("Custom / DM");
+  const [newFeatureDesc, setNewFeatureDesc] = useState("");
 
   // Fetch party roster for switcher
   useEffect(() => {
@@ -474,7 +496,8 @@ export function CharacterSheetView({
         ? {
             name: equippedArmor.name,
             baseAc: equippedArmor.baseAc || 11,
-            category: equippedArmor.name.includes("Chain") || equippedArmor.name.includes("Scale") ? "medium" : equippedArmor.name.includes("Plate") ? "heavy" : "light",
+            category: resolveArmorCategory(equippedArmor),
+            maxDexMod: equippedArmor.maxDexMod,
             stealthDisadvantage: equippedArmor.stealthDisadvantage,
             magicBonus: equippedArmor.magicBonusAc,
           }
@@ -487,9 +510,8 @@ export function CharacterSheetView({
     // Rebuild attack actions based on equipped weapons
     const weaponAttacks = items
       .filter((i) => i.category === "weapon" && i.equipped)
-      .map((wpn, idx) => {
-        const isFinesse = wpn.properties?.includes("finesse");
-        const mod = isFinesse ? Math.max(mods.str, mods.dex) : mods.str;
+      .map((wpn) => {
+        const mod = calcWeaponAttackMod(wpn, sheet.stats);
         const toHit = pb + mod + (wpn.magicBonusAttack || 0);
         return {
           id: `atk-auto-${wpn.id}`,
@@ -553,30 +575,141 @@ export function CharacterSheetView({
     applyLocalEdit(updated);
   };
 
-  // Quick Cast Spell & Slot expenditure
+  // Recalculate 5e Spell Slots & Pact Slots from classes
+  const handleRecalculateSpellSlots = () => {
+    if (!sheet || !canEdit) return;
+    const classEntries =
+      sheet.classes && sheet.classes.length > 0
+        ? sheet.classes.map((c) => ({
+            className: c.className,
+            level: c.level,
+            subclass: c.subclass || sheet.subclass,
+          }))
+        : [{ className: sheet.class, level: sheet.level, subclass: sheet.subclass }];
+
+    const calculated = calcMulticlassSpellSlots(classEntries);
+    const updatedSlots: Record<number, { total: number; used: number }> = {};
+    for (let lvl = 1; lvl <= 9; lvl++) {
+      const total = calculated[lvl] || 0;
+      updatedSlots[lvl] = {
+        total,
+        used: Math.min(sheet.spellSlots?.[lvl]?.used || 0, total),
+      };
+    }
+
+    const warlockEntry = classEntries.find((c) => c.className === "Warlock");
+    const updatedPact = warlockEntry
+      ? {
+          level: calcWarlockPactSlots(warlockEntry.level).slotLevel,
+          total: calcWarlockPactSlots(warlockEntry.level).count,
+          used: Math.min(sheet.pactSlots?.used || 0, calcWarlockPactSlots(warlockEntry.level).count),
+        }
+      : undefined;
+
+    const updated: CharacterSheetData = {
+      ...sheet,
+      spellSlots: updatedSlots,
+      pactSlots: updatedPact,
+    };
+    applyLocalEdit(updated);
+    toast("Spell slots recalculated from 5e class levels!", { type: "success" });
+  };
+
+  // Available cast slot choices for a leveled spell
+  const getCastSlotOptions = (spell: SpellItemData) => {
+    if (!sheet || spell.level === 0) return [];
+    const options: Array<{ value: string; label: string }> = [];
+    for (let lvl = spell.level; lvl <= 9; lvl++) {
+      const slot = sheet.spellSlots?.[lvl];
+      if (slot && slot.total > 0 && slot.used < slot.total) {
+        const remaining = slot.total - slot.used;
+        options.push({
+          value: String(lvl),
+          label: lvl === spell.level ? `Lv ${lvl} Slot (${remaining} left)` : `Upcast Lv ${lvl} (${remaining} left)`,
+        });
+      }
+    }
+    if (sheet.pactSlots && sheet.pactSlots.total > 0 && sheet.pactSlots.used < sheet.pactSlots.total && sheet.pactSlots.level >= spell.level) {
+      const remaining = sheet.pactSlots.total - sheet.pactSlots.used;
+      options.push({
+        value: "pact",
+        label: `Pact Lv ${sheet.pactSlots.level} (${remaining} left)`,
+      });
+    }
+    if (spell.ritual) {
+      options.push({ value: "ritual", label: "Ritual (No Slot)" });
+    }
+    return options;
+  };
+
+  // Quick Cast Spell & Slot expenditure (supports regular slots, upcasting, Warlock Pact slots, & Ritual)
   const handleQuickCastSpell = (spell: SpellItemData) => {
     if (!sheet) return;
+    let updatedSheet: CharacterSheetData | null = null;
+    let castLabelNote = `Level ${spell.level}`;
+
     if (spell.level > 0) {
-      const slot = sheet.spellSlots?.[spell.level];
-      if (slot && slot.total > 0 && slot.used >= slot.total) {
-        toast(`No remaining Level ${spell.level} spell slots!`, { type: "warning" });
+      const options = getCastSlotOptions(spell);
+      const selectedChoice = castSlotChoiceBySpell[spell.id];
+      const chosenOption =
+        options.find((o) => o.value === selectedChoice) || options[0];
+
+      if (!chosenOption) {
+        const hasAnyConfiguredSlots =
+          Object.values(sheet.spellSlots || {}).some((s) => s.total > 0) ||
+          Boolean(sheet.pactSlots && sheet.pactSlots.total > 0);
+        toast(
+          hasAnyConfiguredSlots
+            ? `No remaining Level ${spell.level}+ or Pact spell slots available!`
+            : `Spell slots are currently 0. Click "Recalculate Slots (5e)" first.`,
+          { type: "warning" }
+        );
         return;
       }
-      // Deduct slot
-      if (slot && slot.total > 0) {
-        toggleSpellSlot(spell.level, slot.used);
+
+      if (chosenOption.value === "ritual") {
+        castLabelNote = "Ritual";
+      } else if (chosenOption.value === "pact" && sheet.pactSlots) {
+        castLabelNote = `Pact Lv ${sheet.pactSlots.level}`;
+        updatedSheet = {
+          ...sheet,
+          pactSlots: {
+            ...sheet.pactSlots,
+            used: Math.min(sheet.pactSlots.total, (sheet.pactSlots.used || 0) + 1),
+          },
+        };
+      } else {
+        const slotLvl = parseInt(chosenOption.value, 10) || spell.level;
+        const currSlot = sheet.spellSlots?.[slotLvl] || { total: 0, used: 0 };
+        castLabelNote = `Lv ${slotLvl} Slot`;
+        updatedSheet = {
+          ...sheet,
+          spellSlots: {
+            ...sheet.spellSlots,
+            [slotLvl]: {
+              ...currSlot,
+              used: Math.min(currSlot.total, (currSlot.used || 0) + 1),
+            },
+          },
+        };
+      }
+
+      if (updatedSheet && canEdit) {
+        applyLocalEdit(updatedSheet);
       }
     }
 
-    // Roll damage dice if present
+    // Roll damage or healing or spell attack if present
     if (spell.damageDice) {
-      handleRollDice(spell.damageDice, `${spell.name} Damage`);
+      handleRollDice(spell.damageDice, `${spell.name} Damage (${castLabelNote})`);
+    } else if (spell.healingDice) {
+      handleRollDice(spell.healingDice, `${spell.name} Healing (${castLabelNote})`);
     } else if (spell.isAttack) {
-      handleRollDice(`1d20+${spellMetrics.atkMod}`, `${spell.name} Attack Roll`);
+      handleRollDice(`1d20+${spellMetrics.atkMod}`, `${spell.name} Attack (${castLabelNote})`);
     } else {
       setLastRoll({
-        formula: `${spell.name}`,
-        label: `Cast ${spell.name} (Level ${spell.level})`,
+        formula: spell.name,
+        label: `Cast ${spell.name} (${castLabelNote})`,
         result: 1,
       });
     }
@@ -1362,51 +1495,105 @@ export function CharacterSheetView({
               </div>
             </div>
 
-            {/* LANGUAGES & PROFICIENCIES */}
-            <div className="pt-4 border-t border-stone-800 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-              <div className="p-3 rounded-xl bg-stone-950 border border-stone-800/80 space-y-1">
-                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">
-                  Languages
-                </span>
-                <p className="text-stone-300 font-medium">
-                  {sheet.languages && sheet.languages.length > 0
-                    ? sheet.languages.join(", ")
-                    : "Common"}
-                </p>
-              </div>
-
-              <div className="p-3 rounded-xl bg-stone-950 border border-stone-800/80 space-y-1">
-                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">
-                  Armor Proficiencies
-                </span>
-                <p className="text-stone-300 font-medium">
-                  {sheet.armorProficiencies && sheet.armorProficiencies.length > 0
-                    ? sheet.armorProficiencies.join(", ")
-                    : "None"}
-                </p>
-              </div>
-
-              <div className="p-3 rounded-xl bg-stone-950 border border-stone-800/80 space-y-1">
-                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">
-                  Weapon Proficiencies
-                </span>
-                <p className="text-stone-300 font-medium">
-                  {sheet.weaponProficiencies && sheet.weaponProficiencies.length > 0
-                    ? sheet.weaponProficiencies.join(", ")
-                    : "Simple weapons"}
-                </p>
-              </div>
-
-              <div className="p-3 rounded-xl bg-stone-950 border border-stone-800/80 space-y-1">
-                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">
-                  Tool Proficiencies
-                </span>
-                <p className="text-stone-300 font-medium">
-                  {sheet.toolProficiencies && sheet.toolProficiencies.length > 0
-                    ? sheet.toolProficiencies.join(", ")
-                    : "None"}
-                </p>
-              </div>
+            {/* LANGUAGES & PROFICIENCIES (Full-width across the 12-col grid) */}
+            <div className="lg:col-span-12 p-4 rounded-2xl bg-stone-900 border border-stone-800 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+              {(
+                [
+                  {
+                    key: "languages" as const,
+                    label: "Languages",
+                    items: sheet.languages && sheet.languages.length > 0 ? sheet.languages : ["Common"],
+                    placeholder: "Add language...",
+                    field: "languages" as const,
+                  },
+                  {
+                    key: "armor" as const,
+                    label: "Armor Proficiencies",
+                    items: sheet.armorProficiencies || [],
+                    placeholder: "Add armor prof...",
+                    field: "armorProficiencies" as const,
+                  },
+                  {
+                    key: "weapons" as const,
+                    label: "Weapon Proficiencies",
+                    items: sheet.weaponProficiencies || [],
+                    placeholder: "Add weapon prof...",
+                    field: "weaponProficiencies" as const,
+                  },
+                  {
+                    key: "tools" as const,
+                    label: "Tool Proficiencies",
+                    items: sheet.toolProficiencies || [],
+                    placeholder: "Add tool / kit...",
+                    field: "toolProficiencies" as const,
+                  },
+                ] as const
+              ).map((group) => (
+                <div key={group.key} className="p-3 rounded-xl bg-stone-950 border border-stone-800/80 space-y-2 flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">
+                      {group.label}
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {group.items.length === 0 ? (
+                        <span className="text-stone-500 italic">None</span>
+                      ) : (
+                        group.items.map((entry, idx) => (
+                          <span
+                            key={`${entry}-${idx}`}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-900 border border-stone-700/80 text-stone-200 font-medium"
+                          >
+                            <span>{entry}</span>
+                            {canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = group.items.filter((_, i) => i !== idx);
+                                  updateField(group.field, next as any);
+                                }}
+                                className="text-stone-500 hover:text-red-400 leading-none"
+                                title={`Remove ${entry}`}
+                              >
+                                ×
+                              </button>
+                            )}
+                          </span>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                  {canEdit && (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const val = profInputByCategory[group.key].trim();
+                        if (!val) return;
+                        if (!group.items.some((x) => x.toLowerCase() === val.toLowerCase())) {
+                          updateField(group.field, [...group.items, val] as any);
+                        }
+                        setProfInputByCategory((prev) => ({ ...prev, [group.key]: "" }));
+                      }}
+                      className="flex gap-1 pt-1"
+                    >
+                      <input
+                        type="text"
+                        value={profInputByCategory[group.key]}
+                        onChange={(e) =>
+                          setProfInputByCategory((prev) => ({ ...prev, [group.key]: e.target.value }))
+                        }
+                        placeholder={group.placeholder}
+                        className="flex-1 min-w-0 px-2 py-1 rounded bg-stone-900 border border-stone-800 text-[11px] text-stone-200 focus:outline-none focus:border-amber-500"
+                      />
+                      <button
+                        type="submit"
+                        className="px-2 py-1 rounded bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-stone-950 border border-amber-600/40 text-[11px] font-bold"
+                      >
+                        +
+                      </button>
+                    </form>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
 
@@ -1563,7 +1750,7 @@ export function CharacterSheetView({
                 </h2>
               </div>
 
-              <div className="flex items-center gap-4 text-xs">
+              <div className="flex items-center gap-3 flex-wrap text-xs">
                 <div className="flex items-center gap-2">
                   <span className="text-stone-400">Spellcasting Ability:</span>
                   <select
@@ -1591,73 +1778,136 @@ export function CharacterSheetView({
                 )}
 
                 {canEdit && (
-                  <button
-                    type="button"
-                    onClick={() => setShowSpellCatalog(true)}
-                    className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 font-bold text-xs flex items-center gap-1.5 transition"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>+ Add Spell</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleRecalculateSpellSlots}
+                      className="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 border border-stone-700 text-amber-300 font-bold text-xs flex items-center gap-1.5 transition"
+                      title="Recalculate regular and Warlock Pact spell slots using official 5e rules"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Recalculate Slots (5e)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowSpellCatalog(true)}
+                      className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 font-bold text-xs flex items-center gap-1.5 transition"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ Add Spell</span>
+                    </button>
+                  </>
                 )}
               </div>
             </div>
 
             {/* Spell Slot Bubbles */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-9 gap-2.5">
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((lvl) => {
-                const slotData = sheet.spellSlots?.[lvl] || { total: 0, used: 0 };
-                return (
-                  <div
-                    key={lvl}
-                    className="p-3 rounded-xl bg-stone-950 border border-stone-800 text-center space-y-1.5"
-                  >
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-stone-400">
-                      Level {lvl}
-                    </div>
-                    <div className="flex items-center justify-center gap-1 text-xs">
-                      <span className="text-stone-500">Slots:</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={6}
-                        disabled={!canEdit}
-                        value={slotData.total}
-                        onChange={(e) => {
-                          const total = parseInt(e.target.value, 10) || 0;
-                          updateField("spellSlots", {
-                            ...sheet.spellSlots,
-                            [lvl]: { total, used: Math.min(slotData.used, total) },
-                          });
-                        }}
-                        className="w-8 text-center font-mono rounded bg-stone-900 border border-stone-700 text-indigo-300 font-bold"
-                      />
-                    </div>
-                    {slotData.total > 0 && (
-                      <div className="flex items-center justify-center gap-1.5 flex-wrap pt-1">
-                        {Array.from({ length: slotData.total }).map((_, idx) => {
-                          const isUsed = idx < slotData.used;
-                          return (
-                            <button
-                              key={idx}
-                              type="button"
-                              disabled={!canEdit}
-                              onClick={() => toggleSpellSlot(lvl, idx)}
-                              className={`w-4 h-4 rounded-full border transition ${
-                                isUsed
-                                  ? "bg-stone-800 border-stone-700 opacity-40"
-                                  : "bg-indigo-500 border-indigo-400 shadow shadow-indigo-500/40"
-                              }`}
-                              title={isUsed ? "Slot Expended (Click to restore)" : "Slot Available (Click to expend)"}
-                            />
-                          );
-                        })}
-                      </div>
-                    )}
+            {(() => {
+              const slotLevels = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+              const activeSlotLevels = slotLevels.filter((l) => (sheet.spellSlots?.[l]?.total || 0) > 0);
+              const visibleLevels = showAllSpellSlots
+                ? slotLevels
+                : activeSlotLevels.length > 0
+                ? activeSlotLevels
+                : [];
+
+              return (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-stone-400">
+                      {activeSlotLevels.length > 0
+                        ? `Active Spell Slot Levels: ${activeSlotLevels.join(", ")}`
+                        : sheet.pactSlots && sheet.pactSlots.total > 0
+                        ? "Pact Magic Caster (Warlock Slots below)"
+                        : "No standard spell slots configured yet."}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowAllSpellSlots(!showAllSpellSlots)}
+                      className="text-indigo-300 hover:text-indigo-200 underline"
+                    >
+                      {showAllSpellSlots ? "Show Active Levels Only" : "Edit All Levels (1–9)"}
+                    </button>
                   </div>
-                );
-              })}
-            </div>
+
+                  {activeSlotLevels.length === 0 && !sheet.pactSlots?.total && sheet.spellcastingAbility !== "none" && canEdit && (
+                    <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-500/40 flex items-center justify-between gap-2 text-xs">
+                      <span className="text-amber-200">
+                        Your spellcaster has 0 slots stored—click to calculate official 5e slots for your level/class!
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleRecalculateSpellSlots}
+                        className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold shrink-0"
+                      >
+                        Fix 5e Spell Slots
+                      </button>
+                    </div>
+                  )}
+
+                  {visibleLevels.length > 0 && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-2.5">
+                      {visibleLevels.map((lvl) => {
+                        const slotData = sheet.spellSlots?.[lvl] || { total: 0, used: 0 };
+                        return (
+                          <div
+                            key={lvl}
+                            className="p-3 rounded-xl bg-stone-950 border border-stone-800 text-center space-y-1.5"
+                          >
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                              Level {lvl}
+                            </div>
+                            <div className="flex items-center justify-center gap-1 text-xs">
+                              <span className="text-stone-500">
+                                {slotData.total - slotData.used}/{slotData.total}
+                              </span>
+                              {canEdit && (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={6}
+                                  value={slotData.total}
+                                  onChange={(e) => {
+                                    const total = parseInt(e.target.value, 10) || 0;
+                                    updateField("spellSlots", {
+                                      ...sheet.spellSlots,
+                                      [lvl]: { total, used: Math.min(slotData.used, total) },
+                                    });
+                                  }}
+                                  className="w-9 text-center font-mono rounded bg-stone-900 border border-stone-700 text-indigo-300 font-bold"
+                                  title="Edit total slots for this level"
+                                />
+                              )}
+                            </div>
+                            {slotData.total > 0 && (
+                              <div className="flex items-center justify-center gap-1.5 flex-wrap pt-1">
+                                {Array.from({ length: slotData.total }).map((_, idx) => {
+                                  const isUsed = idx < slotData.used;
+                                  return (
+                                    <button
+                                      key={idx}
+                                      type="button"
+                                      disabled={!canEdit}
+                                      onClick={() => toggleSpellSlot(lvl, idx)}
+                                      className={`w-4 h-4 rounded-full border transition ${
+                                        isUsed
+                                          ? "bg-stone-800 border-stone-700 opacity-40"
+                                          : "bg-indigo-500 border-indigo-400 shadow shadow-indigo-500/40"
+                                      }`}
+                                      title={isUsed ? "Slot Expended (Click to restore)" : "Slot Available (Click to expend)"}
+                                    />
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Warlock Pact Magic Slots if applicable */}
             {sheet.pactSlots && (
@@ -1698,78 +1948,119 @@ export function CharacterSheetView({
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {(sheet.spells || []).map((spell) => (
-                    <div
-                      key={spell.id}
-                      className="p-4 rounded-xl bg-stone-950 border border-stone-800 space-y-2.5"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-serif font-bold text-base text-amber-200">
-                              {spell.name}
-                            </span>
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800/40">
-                              {spell.level === 0 ? "Cantrip" : `Level ${spell.level}`}
-                            </span>
+                  {(sheet.spells || []).map((spell) => {
+                    const castOptions = getCastSlotOptions(spell);
+                    const selectedCastVal = castSlotChoiceBySpell[spell.id] || castOptions[0]?.value || "";
+                    return (
+                      <div
+                        key={spell.id}
+                        className="p-4 rounded-xl bg-stone-950 border border-stone-800 space-y-2.5"
+                      >
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-serif font-bold text-base text-amber-200">
+                                {spell.name}
+                              </span>
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800/40">
+                                {spell.level === 0 ? "Cantrip" : `Level ${spell.level}`}
+                              </span>
+                              {spell.concentration && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-300 border border-amber-700/40 font-bold">
+                                  Conc.
+                                </span>
+                              )}
+                              {spell.ritual && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/40 text-sky-300 border border-sky-700/40 font-bold">
+                                  Ritual
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-stone-400 mt-0.5">
+                              {spell.castingTime} • Range: {spell.range} • {spell.duration}
+                            </div>
                           </div>
-                          <div className="text-[11px] text-stone-400 mt-0.5">
-                            {spell.castingTime} • Range: {spell.range}
-                          </div>
-                        </div>
 
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleQuickCastSpell(spell)}
-                            className="px-3 py-1 rounded-lg bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white border border-indigo-500/40 text-xs font-bold transition flex items-center gap-1"
-                          >
-                            <Zap className="w-3 h-3" />
-                            <span>Cast</span>
-                          </button>
-                          {canEdit && (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {spell.level > 0 && castOptions.length > 0 && (
+                              <select
+                                value={selectedCastVal}
+                                onChange={(e) =>
+                                  setCastSlotChoiceBySpell((prev) => ({
+                                    ...prev,
+                                    [spell.id]: e.target.value,
+                                  }))
+                                }
+                                className="bg-stone-900 border border-stone-700 rounded-lg px-2 py-1 text-[11px] text-indigo-200 focus:outline-none"
+                                title="Choose spell slot level or Pact/Ritual cast"
+                              >
+                                {castOptions.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
                             <button
                               type="button"
-                              onClick={() => handleRemoveSpell(spell.id)}
-                              className="p-1 text-stone-500 hover:text-red-400 rounded"
+                              onClick={() => handleQuickCastSpell(spell)}
+                              className="px-3 py-1 rounded-lg bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white border border-indigo-500/40 text-xs font-bold transition flex items-center gap-1"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Zap className="w-3 h-3" />
+                              <span>Cast</span>
                             </button>
-                          )}
+                            {canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveSpell(spell.id)}
+                                className="p-1 text-stone-500 hover:text-red-400 rounded"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </div>
 
-                      {/* Prominent Action Bar */}
-                      <div className="flex items-center gap-2 flex-wrap text-xs">
-                        {spell.isAttack && (
-                          <span className="font-mono font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                            +{spellMetrics.atkMod} vs AC
-                          </span>
+                        {/* Prominent Action Bar */}
+                        {(spell.isAttack || spell.saveStat || spell.damageDice || spell.healingDice) && (
+                          <div className="flex items-center gap-2 flex-wrap text-xs">
+                            {spell.isAttack && (
+                              <span className="font-mono font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                +{spellMetrics.atkMod} vs AC
+                              </span>
+                            )}
+                            {spell.saveStat && (
+                              <span className="font-mono font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 uppercase">
+                                DC {spellMetrics.saveDc} {spell.saveStat}
+                              </span>
+                            )}
+                            {spell.damageDice && (
+                              <span className="font-mono font-bold px-2 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/40 flex items-center gap-1">
+                                <Flame className="w-3 h-3" />
+                                {spell.damageDice} {spell.damageType || ""}
+                              </span>
+                            )}
+                            {spell.healingDice && (
+                              <span className="font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                                <Heart className="w-3 h-3" />
+                                {spell.healingDice} Heal
+                              </span>
+                            )}
+                          </div>
                         )}
-                        {spell.saveStat && (
-                          <span className="font-mono font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 uppercase">
-                            DC {spellMetrics.saveDc} {spell.saveStat}
-                          </span>
-                        )}
-                        {spell.damageDice && (
-                          <span className="font-mono font-bold px-2 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/40 flex items-center gap-1">
-                            <Flame className="w-3 h-3" />
-                            {spell.damageDice} {spell.damageType || ""}
-                          </span>
-                        )}
-                      </div>
 
-                      <p className="text-xs text-stone-300 leading-relaxed">
-                        {spell.description}
-                      </p>
-                    </div>
-                  ))}
+                        <p className="text-xs text-stone-300 leading-relaxed">
+                          {spell.description}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
           </div>
 
-          {/* 5E.TOOLS QUICK LOOKUP DRAWER */}
+          {/* 5E.TOOLS QUICK LOOKUP DRAWER + INSTANT LOCAL COMPENDIUM */}
           <div className="p-5 rounded-2xl bg-stone-900 border border-sky-600/40 space-y-4 shadow-lg">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
@@ -1778,16 +2069,16 @@ export function CharacterSheetView({
                 </div>
                 <div>
                   <h2 className="text-sm font-bold uppercase tracking-wider text-sky-200">
-                    5e.tools Instant Compendium Lookup
+                    5e Compendium &amp; 5e.tools Lookup
                   </h2>
                   <p className="text-xs text-stone-400">
-                    Direct lookup for D&D 5e spells, items, monsters, and feats.
+                    Search local 5e spells, weapons, armor, packs, tools &amp; feats to add in 1 click, or search 5e.tools directly.
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                {(["spells", "items", "bestiary", "feats"] as const).map((cat) => (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {(["spells", "items", "feats", "bestiary", "classes"] as const).map((cat) => (
                   <button
                     key={cat}
                     type="button"
@@ -1804,78 +2095,376 @@ export function CharacterSheetView({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <input
                 type="text"
-                placeholder={`Search 5e.tools ${lookupCategory}... (e.g. Fireball, Shield, Bag of Holding)`}
+                placeholder="Search local compendium & 5e.tools (e.g. Fireball, Longbow, Resilient, Burglar's Pack)..."
                 value={lookupQuery}
                 onChange={(e) => setLookupQuery(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && lookupQuery.trim()) {
-                    const encoded = encodeURIComponent(lookupQuery.trim().toLowerCase());
-                    window.open(`https://5e.tools/${lookupCategory}.html#${encoded}`, "_blank");
+                    const q = encodeURIComponent(lookupQuery.trim());
+                    window.open(`https://5e.tools/search.html?q=${q}`, "_blank");
                   }
                 }}
-                className="flex-1 px-3 py-2 rounded-xl bg-black/60 border border-stone-700 text-sm text-stone-100 placeholder-stone-500 focus:outline-none focus:border-sky-500 font-sans"
+                className="flex-1 min-w-[220px] px-3 py-2 rounded-xl bg-black/60 border border-stone-700 text-sm text-stone-100 placeholder-stone-500 focus:outline-none focus:border-sky-500 font-sans"
               />
               <button
                 type="button"
-                disabled={!lookupQuery.trim()}
                 onClick={() => {
-                  const encoded = encodeURIComponent(lookupQuery.trim().toLowerCase());
-                  window.open(`https://5e.tools/${lookupCategory}.html#${encoded}`, "_blank");
+                  const q = lookupQuery.trim();
+                  const url = q
+                    ? `https://5e.tools/search.html?q=${encodeURIComponent(q)}`
+                    : `https://5e.tools/${lookupCategory}.html`;
+                  window.open(url, "_blank");
                 }}
-                className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs flex items-center gap-1.5 transition disabled:opacity-40"
+                className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs flex items-center gap-1.5 transition"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
-                <span>Open on 5e.tools</span>
+                <span>{lookupQuery.trim() ? "Search on 5e.tools" : `Open ${lookupCategory} on 5e.tools`}</span>
               </button>
             </div>
+
+            {/* Instant Local Matches */}
+            {lookupQuery.trim().length >= 2 && (() => {
+              const q = lookupQuery.trim().toLowerCase();
+              const matchedSpells = SPELLS_5E.filter((s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)).slice(0, 4);
+              const matchedWeapons = WEAPONS_5E.filter((w) => w.name.toLowerCase().includes(q)).slice(0, 4);
+              const matchedArmor = ARMOR_5E.filter((a) => a.name.toLowerCase().includes(q)).slice(0, 4);
+              const matchedGear = [...GEAR_5E, ...PACKS_5E, ...TOOLS_5E].filter((g) => g.name.toLowerCase().includes(q)).slice(0, 4);
+              const matchedFeats = FEATS_5E.filter((f) => f.name.toLowerCase().includes(q) || f.description.toLowerCase().includes(q)).slice(0, 4);
+              const totalMatches = matchedSpells.length + matchedWeapons.length + matchedArmor.length + matchedGear.length + matchedFeats.length;
+
+              return (
+                <div className="space-y-2 pt-2 border-t border-stone-800 text-xs">
+                  <div className="text-[11px] font-semibold text-sky-300">
+                    Instant Local Compendium Matches ({totalMatches})
+                  </div>
+                  {totalMatches === 0 ? (
+                    <p className="text-stone-400">
+                      No exact local match for &ldquo;{lookupQuery}&rdquo;—click &ldquo;Search on 5e.tools&rdquo; to view full official results.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {matchedSpells.map((s) => (
+                        <div key={`lk-sp-${s.id}`} className="p-2.5 rounded-xl bg-stone-950 border border-stone-800 flex items-start justify-between gap-2">
+                          <div>
+                            <div className="font-bold text-indigo-300">{s.name} <span className="text-[10px] text-stone-400 font-normal">({s.level === 0 ? "Cantrip" : `Lv ${s.level}`} Spell)</span></div>
+                            <p className="text-[11px] text-stone-400 mt-0.5">{s.description}</p>
+                          </div>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => handleAddSpell({ ...s, prepared: true })}
+                              className="px-2 py-1 rounded bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/40 text-[11px] font-bold shrink-0"
+                            >
+                              + Spell
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      {matchedWeapons.map((w) => (
+                        <div key={`lk-wp-${w.id}`} className="p-2.5 rounded-xl bg-stone-950 border border-stone-800 flex items-start justify-between gap-2">
+                          <div>
+                            <div className="font-bold text-amber-300">{w.name} <span className="text-[10px] text-stone-400 font-normal">({w.damage} {w.damageType} • {w.cost})</span></div>
+                            <p className="text-[11px] text-stone-400 mt-0.5">{w.properties.join(", ") || "Standard weapon"}</p>
+                          </div>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleAddItemToInventory({
+                                  id: `lk-${w.id}-${Date.now()}`,
+                                  name: w.name,
+                                  category: "weapon",
+                                  quantity: 1,
+                                  weight: w.weight,
+                                  damage: w.damage,
+                                  damageType: w.damageType,
+                                  versatileDamage: w.versatileDamage,
+                                  properties: w.properties,
+                                  range: w.range,
+                                })
+                              }
+                              className="px-2 py-1 rounded bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-stone-950 border border-amber-500/40 text-[11px] font-bold shrink-0"
+                            >
+                              + Item
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      {matchedArmor.map((a) => (
+                        <div key={`lk-ar-${a.id}`} className="p-2.5 rounded-xl bg-stone-950 border border-stone-800 flex items-start justify-between gap-2">
+                          <div>
+                            <div className="font-bold text-blue-300">{a.name} <span className="text-[10px] text-stone-400 font-normal">(AC {a.baseAc}{a.addDex ? "+DEX" : ""} • {a.cost})</span></div>
+                            <p className="text-[11px] text-stone-400 mt-0.5">{a.category} armor{a.stealthDisadvantage ? " • Stealth Disadv" : ""}</p>
+                          </div>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleAddItemToInventory({
+                                  id: `lk-${a.id}-${Date.now()}`,
+                                  name: a.name,
+                                  category: a.category === "shield" ? "shield" : "armor",
+                                  armorCategory: a.category === "shield" ? undefined : a.category,
+                                  quantity: 1,
+                                  weight: a.weight,
+                                  baseAc: a.baseAc,
+                                  maxDexMod: a.maxDexMod,
+                                  stealthDisadvantage: a.stealthDisadvantage,
+                                })
+                              }
+                              className="px-2 py-1 rounded bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/40 text-[11px] font-bold shrink-0"
+                            >
+                              + Item
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      {matchedGear.map((g) => (
+                        <div key={`lk-gr-${g.id}`} className="p-2.5 rounded-xl bg-stone-950 border border-stone-800 flex items-start justify-between gap-2">
+                          <div>
+                            <div className="font-bold text-stone-200">{g.name} <span className="text-[10px] text-stone-400 font-normal">({g.cost})</span></div>
+                            <p className="text-[11px] text-stone-400 mt-0.5">{g.description}</p>
+                          </div>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleAddItemToInventory({
+                                  id: `lk-${g.id}-${Date.now()}`,
+                                  name: g.name,
+                                  category: "gear",
+                                  quantity: 1,
+                                  weight: g.weight,
+                                  description: g.description,
+                                })
+                              }
+                              className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 text-[11px] font-bold shrink-0"
+                            >
+                              + Item
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      {matchedFeats.map((f) => (
+                        <div key={`lk-ft-${f.id}`} className="p-2.5 rounded-xl bg-stone-950 border border-stone-800 flex items-start justify-between gap-2">
+                          <div>
+                            <div className="font-bold text-emerald-300">Feat: {f.name}</div>
+                            <p className="text-[11px] text-stone-400 mt-0.5">{f.description}</p>
+                          </div>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const list = [...(sheet.featureList || [])];
+                                list.push({
+                                  id: `lk-feat-${f.id}-${Date.now()}`,
+                                  name: `Feat: ${f.name}`,
+                                  source: f.source || "Feat",
+                                  level: sheet.level,
+                                  description: f.description,
+                                });
+                                applyLocalEdit({ ...sheet, featureList: list });
+                                toast(`Added Feat: ${f.name}`, { type: "success" });
+                              }}
+                              className="px-2 py-1 rounded bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-stone-950 border border-emerald-500/40 text-[11px] font-bold shrink-0"
+                            >
+                              + Feat
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
-          {/* FEATURES, TRAITS & NOTES */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <div className="p-5 rounded-2xl bg-stone-900 border border-stone-800 space-y-3">
-              <label className="block text-xs font-bold uppercase tracking-wider text-amber-200">
-                Class Features & Feats Unlocked
-              </label>
-              {(sheet.featureList || []).length > 0 ? (
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                  {(sheet.featureList || []).map((f) => (
-                    <div key={f.id} className="p-2.5 rounded-lg bg-stone-950 border border-stone-800 text-xs">
-                      <div className="flex items-center justify-between">
-                        <strong className="text-amber-300 font-serif">{f.name}</strong>
-                        <span className="text-[10px] font-mono text-stone-500">{f.source}</span>
-                      </div>
-                      <p className="text-stone-300 mt-1 leading-relaxed">{f.description}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <textarea
-                  rows={6}
-                  disabled={!canEdit}
-                  value={sheet.features || ""}
-                  onChange={(e) => updateField("features", e.target.value)}
-                  placeholder="Second Wind, Action Surge, Darkvision, War Caster..."
-                  className="w-full p-3 rounded-xl bg-stone-950 border border-stone-700 text-xs text-stone-200 focus:outline-none focus:border-amber-500 font-sans leading-relaxed resize-y"
+          {/* FULL-WIDTH CLASS FEATURES, SUBCLASS TRAITS & FEATS */}
+          <div className="p-5 rounded-2xl bg-stone-900 border border-stone-800 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-wider text-amber-200">
+                  Class Features, Subclass Traits &amp; Feats ({(sheet.featureList || []).length})
+                </h2>
+                <p className="text-xs text-stone-400">
+                  Full-width codex of unlocked class, subclass, racial, background, and feat abilities.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  type="text"
+                  value={featureSearch}
+                  onChange={(e) => setFeatureSearch(e.target.value)}
+                  placeholder="Filter features..."
+                  className="px-3 py-1.5 rounded-xl bg-stone-950 border border-stone-800 text-xs text-stone-200 focus:outline-none focus:border-amber-500"
                 />
-              )}
+                <select
+                  value={featureSourceFilter}
+                  onChange={(e) => setFeatureSourceFilter(e.target.value as any)}
+                  className="px-2.5 py-1.5 rounded-xl bg-stone-950 border border-stone-800 text-xs text-stone-200"
+                >
+                  <option value="all">All Sources</option>
+                  <option value="class">Class Features</option>
+                  <option value="feat">Feats</option>
+                  <option value="race">Race &amp; Background</option>
+                  <option value="custom">Custom</option>
+                </select>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAddFeatureForm(!showAddFeatureForm)}
+                    className="px-3 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-stone-950 border border-amber-600/40 text-xs font-bold flex items-center gap-1 transition"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Feature</span>
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="p-5 rounded-2xl bg-stone-900 border border-stone-800 space-y-2">
-              <label className="block text-xs font-bold uppercase tracking-wider text-amber-200">
-                Personal Notes & Codex
-              </label>
+            {showAddFeatureForm && canEdit && (
+              <div className="p-4 rounded-xl bg-stone-950 border border-amber-500/40 space-y-2.5 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <input
+                    type="text"
+                    value={newFeatureName}
+                    onChange={(e) => setNewFeatureName(e.target.value)}
+                    placeholder="Feature or Boon Name..."
+                    className="bg-stone-900 border border-stone-700 rounded-lg p-2 text-stone-100"
+                  />
+                  <input
+                    type="text"
+                    value={newFeatureSource}
+                    onChange={(e) => setNewFeatureSource(e.target.value)}
+                    placeholder="Source (e.g. Custom / Boon / Class)"
+                    className="bg-stone-900 border border-stone-700 rounded-lg p-2 text-stone-100"
+                  />
+                </div>
+                <textarea
+                  rows={2}
+                  value={newFeatureDesc}
+                  onChange={(e) => setNewFeatureDesc(e.target.value)}
+                  placeholder="Describe the mechanical effect..."
+                  className="w-full bg-stone-900 border border-stone-700 rounded-lg p-2 text-stone-100"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddFeatureForm(false)}
+                    className="px-3 py-1.5 rounded-lg bg-stone-800 text-stone-300"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!newFeatureName.trim()) return;
+                      const list = [...(sheet.featureList || [])];
+                      list.push({
+                        id: `feat-custom-${Date.now()}`,
+                        name: newFeatureName.trim(),
+                        source: newFeatureSource.trim() || "Custom",
+                        level: sheet.level,
+                        description: newFeatureDesc.trim(),
+                      });
+                      applyLocalEdit({ ...sheet, featureList: list });
+                      setNewFeatureName("");
+                      setNewFeatureDesc("");
+                      setShowAddFeatureForm(false);
+                    }}
+                    className="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold"
+                  >
+                    Save Feature
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {(sheet.featureList || []).length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[520px] overflow-y-auto pr-1">
+                {(sheet.featureList || [])
+                  .filter((f) => {
+                    const q = featureSearch.trim().toLowerCase();
+                    if (
+                      q &&
+                      !f.name.toLowerCase().includes(q) &&
+                      !f.source.toLowerCase().includes(q) &&
+                      !f.description.toLowerCase().includes(q)
+                    ) {
+                      return false;
+                    }
+                    if (featureSourceFilter === "feat") {
+                      return f.name.toLowerCase().includes("feat:") || f.source.toLowerCase().includes("asi") || f.source.toLowerCase().includes("feat");
+                    }
+                    if (featureSourceFilter === "custom") {
+                      return f.id.includes("custom") || f.source.toLowerCase().includes("custom") || f.source.toLowerCase().includes("dm");
+                    }
+                    if (featureSourceFilter === "race") {
+                      return f.id.startsWith("racetrait") || f.id.startsWith("subracetrait") || f.id.startsWith("bgfeat");
+                    }
+                    if (featureSourceFilter === "class") {
+                      return f.id.startsWith("feat-") || f.id.startsWith("subfeat-");
+                    }
+                    return true;
+                  })
+                  .map((f) => (
+                    <div key={f.id} className="p-3.5 rounded-xl bg-stone-950 border border-stone-800 text-xs flex flex-col justify-between gap-2">
+                      <div>
+                        <div className="flex items-start justify-between gap-2">
+                          <strong className="text-amber-300 font-serif text-sm">{f.name}</strong>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-stone-900 border border-stone-800 text-stone-400">
+                              {f.source}
+                            </span>
+                            {canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = (sheet.featureList || []).filter((x) => x.id !== f.id);
+                                  applyLocalEdit({ ...sheet, featureList: next });
+                                }}
+                                className="text-stone-500 hover:text-red-400 p-0.5"
+                                title="Remove feature"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-stone-300 mt-1.5 leading-relaxed">{f.description}</p>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            ) : (
               <textarea
                 rows={6}
                 disabled={!canEdit}
-                value={sheet.notes || ""}
-                onChange={(e) => updateField("notes", e.target.value)}
-                placeholder="Backstory, campaign bonds, allies, secret goals..."
+                value={sheet.features || ""}
+                onChange={(e) => updateField("features", e.target.value)}
+                placeholder="Second Wind, Action Surge, Darkvision, War Caster..."
                 className="w-full p-3 rounded-xl bg-stone-950 border border-stone-700 text-xs text-stone-200 focus:outline-none focus:border-amber-500 font-sans leading-relaxed resize-y"
               />
-            </div>
+            )}
+          </div>
+
+          {/* PERSONAL NOTES & CODEX */}
+          <div className="p-5 rounded-2xl bg-stone-900 border border-stone-800 space-y-2">
+            <label className="block text-xs font-bold uppercase tracking-wider text-amber-200">
+              Personal Notes &amp; Codex
+            </label>
+            <textarea
+              rows={5}
+              disabled={!canEdit}
+              value={sheet.notes || ""}
+              onChange={(e) => updateField("notes", e.target.value)}
+              placeholder="Backstory, campaign bonds, allies, secret goals..."
+              className="w-full p-3 rounded-xl bg-stone-950 border border-stone-700 text-xs text-stone-200 focus:outline-none focus:border-amber-500 font-sans leading-relaxed resize-y"
+            />
           </div>
         </div>
       )}
@@ -1932,6 +2521,15 @@ export function CharacterSheetView({
         <SpellCatalogModal
           onClose={() => setShowSpellCatalog(false)}
           onAddSpell={handleAddSpell}
+          defaultClassFilter={(() => {
+            const casterCls =
+              sheet.classes?.find((c) => {
+                const def = CLASSES_5E[c.className];
+                return def?.spellcastingType && def.spellcastingType !== "none";
+              })?.className || sheet.class;
+            const def = CLASSES_5E[casterCls];
+            return def?.spellcastingType && def.spellcastingType !== "none" ? casterCls : "all";
+          })()}
         />
       )}
 
